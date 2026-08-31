@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
+from backend.app.analysis.pipeline import analyze_claim
 from backend.app.models.schemas import (
     AnalyzeRequest,
     AnalysisResponse,
@@ -8,78 +9,128 @@ from backend.app.models.schemas import (
     FactorScore,
     UncertaintyInfo,
 )
-from backend.app.scoring.calculator import calculate_overall_score, get_label
-from backend.app.scoring.uncertainty import evaluate_uncertainty
 
 
 router = APIRouter()
 
 
-@router.post("/analyze", response_model=AnalysisResponse)
-def analyze(request: AnalyzeRequest):
-    factors = FactorBreakdown(
-        evidence_strength=FactorScore(
-            score=90,
-            justification="Mock evidence strongly supports the claim.",
-        ),
-        factual_consistency=FactorScore(
-            score=85,
-            justification="Mock evidence is largely consistent with the claim.",
-        ),
-        source_provenance=FactorScore(
-            score=80,
-            justification="Mock sources have strong provenance.",
-        ),
-        bias_framing=FactorScore(
-            score=75,
-            justification="Mock framing shows limited bias.",
-        ),
-        incentive_conflict=FactorScore(
-            score=70,
-            justification="No major mock conflicts were identified.",
-        ),
+def derive_confidence(uncertainty: dict) -> str:
+    if uncertainty["gate_triggered"]:
+        return "low"
+
+    if uncertainty["level"] == "medium":
+        return "medium"
+
+    return "high"
+
+
+def build_public_evidence(result: dict) -> list[EvidenceItem]:
+    retrieved_by_url = {
+        item["url"]: item
+        for item in result.get("evidence", [])
+    }
+
+    assessments = result.get(
+        "evidence_analysis",
+        {},
+    ).get(
+        "evidence_assessments",
+        [],
     )
 
-    uncertainty_gate, uncertainty_level, uncertainty_reason = evaluate_uncertainty(
-        evidence_count=3,
-        high_quality_count=2,
-        conflicting_evidence=False,
-        claim_is_clear=True,
-    )
+    public_evidence = []
 
-    overall_score = calculate_overall_score(
-        evidence_strength=factors.evidence_strength.score,
-        factual_consistency=factors.factual_consistency.score,
-        source_provenance=factors.source_provenance.score,
-        bias_framing=factors.bias_framing.score,
-        incentive_conflict=factors.incentive_conflict.score,
-    )
-
-    label = get_label(overall_score, uncertainty_gate)
-
-    evidence = [
-        EvidenceItem(
-            title="Mock Evidence Source",
-            url="https://example.com/evidence",
-            source="Example",
-            stance="supports",
-            quality="high",
-            summary="This is temporary mock evidence used to test the API.",
+    for assessment in assessments:
+        retrieved = retrieved_by_url.get(
+            assessment["url"]
         )
-    ]
+
+        if not retrieved:
+            continue
+
+        public_evidence.append(
+            EvidenceItem(
+                title=retrieved["title"],
+                url=retrieved["url"],
+                source=retrieved["source"],
+                stance=assessment["stance"],
+                quality=retrieved["quality"],
+                summary=assessment["reasoning"],
+            )
+        )
+
+    return public_evidence
+
+
+@router.post(
+    "/analyze",
+    response_model=AnalysisResponse,
+)
+def analyze(request: AnalyzeRequest):
+    if request.input_type != "claim":
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Only claim input is currently supported "
+                "by the Phase 2 MVP."
+            ),
+        )
+
+    if request.mode != "normal":
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Deep Mode is not implemented yet."
+            ),
+        )
+
+    try:
+        result = analyze_claim(
+            claim=request.input,
+            search_results=5,
+            top_k=3,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Credibility analysis failed.",
+        ) from exc
+
+    factors = None
+
+    if result["factors"] is not None:
+        factors = FactorBreakdown(
+            evidence_strength=FactorScore(
+                **result["factors"]["evidence_strength"]
+            ),
+            factual_consistency=FactorScore(
+                **result["factors"]["factual_consistency"]
+            ),
+            source_provenance=FactorScore(
+                **result["factors"]["source_provenance"]
+            ),
+            bias_framing=FactorScore(
+                **result["factors"]["bias_framing"]
+            ),
+            incentive_conflict=FactorScore(
+                **result["factors"]["incentive_conflict"]
+            ),
+        )
+
+    uncertainty = UncertaintyInfo(
+        **result["uncertainty"]
+    )
 
     return AnalysisResponse(
-        claim=request.input,
-        overall_score=overall_score,
-        label=label,
-        confidence="high",
-        factors=factors,
-        uncertainty=UncertaintyInfo(
-            gate_triggered=uncertainty_gate,
-            level=uncertainty_level,
-            reason=uncertainty_reason,
+        claim=result["claim"],
+        overall_score=result["overall_score"],
+        label=result["label"],
+        confidence=derive_confidence(
+            result["uncertainty"]
         ),
-        evidence=evidence,
-        flags=[],
-        latency_ms=0,
+        factors=factors,
+        uncertainty=uncertainty,
+        evidence=build_public_evidence(result),
+        flags=result["flags"],
+        latency_ms=result["latency_ms"],
     )

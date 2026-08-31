@@ -11,7 +11,10 @@ HIGH_QUALITY_DOMAINS = {
     "reuters.com",
     "apnews.com",
     "gov.uk",
+    "iana.org",
+    "nasa.gov",
 }
+
 
 MEDIUM_QUALITY_DOMAINS = {
     "bbc.com",
@@ -30,13 +33,22 @@ def get_domain(url: str) -> str:
     return domain
 
 
+def domain_matches(domain: str, known_domain: str) -> bool:
+    return (
+        domain == known_domain
+        or domain.endswith("." + known_domain)
+    )
+
+
 def classify_source_quality(url: str) -> str:
     domain = get_domain(url)
 
-    if domain in HIGH_QUALITY_DOMAINS:
-        return "high"
+    for known_domain in HIGH_QUALITY_DOMAINS:
+        if domain_matches(domain, known_domain):
+            return "high"
 
-    if domain in MEDIUM_QUALITY_DOMAINS:
-        return "medium"
+    for known_domain in MEDIUM_QUALITY_DOMAINS:
+        if domain_matches(domain, known_domain):
+            return "medium"
 
     return "low"

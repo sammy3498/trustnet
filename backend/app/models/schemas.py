@@ -29,6 +29,16 @@ class FactorBreakdown(BaseModel):
     bias_framing: FactorScore
     incentive_conflict: FactorScore
 
+class LLMFactorBreakdown(BaseModel):
+    factual_consistency: FactorScore
+    source_provenance: FactorScore
+    bias_framing: FactorScore
+    incentive_conflict: FactorScore
+
+class LLMScoringResponse(BaseModel):
+    claim: str
+    factors: LLMFactorBreakdown
+    flags: list[str]
 
 class UncertaintyInfo(BaseModel):
     gate_triggered: bool
@@ -38,7 +48,7 @@ class UncertaintyInfo(BaseModel):
 
 class AnalysisResponse(BaseModel):
     claim: str
-    overall_score: int = Field(ge=0, le=100)
+    overall_score: int | None = Field(default=None, ge=0, le=100)
 
     label: Literal[
         "Highly Credible",
@@ -50,7 +60,7 @@ class AnalysisResponse(BaseModel):
 
     confidence: Literal["low", "medium", "high"]
 
-    factors: FactorBreakdown
+    factors: FactorBreakdown | None = None
     uncertainty: UncertaintyInfo
 
     evidence: list[EvidenceItem]

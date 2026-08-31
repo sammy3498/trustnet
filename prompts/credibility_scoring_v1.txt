@@ -8,24 +8,16 @@ Do not invent citations or URLs.
 Do not let source reputation override the actual evidence.
 Do not output free-form text outside the required JSON.
 
-Score the claim using these five factors:
+Score the claim using these four factors:
 
-1. Evidence Strength — 40%
-How strongly does the available reliable evidence support the claim?
-
-Scoring direction:
-0 = strong reliable evidence contradicts the claim
-50 = mixed, weak, or inconclusive evidence
-100 = strong reliable evidence supports the claim
-
-2. Factual Consistency — 35%
+1. Factual Consistency — 35%
 How accurately does the claim match what the reliable evidence actually establishes?
 
 0 = strongly inconsistent or contradicted
 50 = partially consistent / unclear
 100 = fully consistent
 
-3. Source Provenance — 10%
+2. Source Provenance — 10%
 Assess the credibility and traceability of the sources supporting the claim.
 
 Consider:
@@ -39,7 +31,7 @@ Consider:
 0 = very poor provenance
 100 = excellent provenance
 
-4. Bias & Framing — 8%
+3. Bias & Framing — 8%
 Assess whether the claim is presented accurately and fairly.
 
 Consider:
@@ -52,7 +44,7 @@ Consider:
 0 = highly misleading or biased framing
 100 = neutral and contextually accurate framing
 
-5. Incentive / Conflict — 7%
+4. Incentive / Conflict — 7%
 Assess whether identifiable incentives or conflicts of interest reduce trustworthiness.
 
 Consider:
@@ -67,7 +59,11 @@ Consider:
 
 Important weighting rule:
 
-Evidence Strength and Factual Consistency together account for 75% of the final score and must dominate the assessment.
+Evidence Strength is calculated separately by TrustNet's evidence-analysis stage.
+
+Do not calculate or output Evidence Strength.
+
+Factual Consistency remains the primary factor evaluated in this stage.
 
 Secondary factors must not override strong factual evidence.
 
@@ -76,10 +72,6 @@ Return ONLY valid JSON:
 {
   "claim": "string",
   "factors": {
-    "evidence_strength": {
-      "score": 0,
-      "justification": "string"
-    },
     "factual_consistency": {
       "score": 0,
       "justification": "string"
@@ -101,7 +93,6 @@ Return ONLY valid JSON:
     "string"
   ]
 }
-
 Rules:
 
 - Every score must be between 0 and 100.
@@ -112,5 +103,6 @@ Rules:
 - Do not calculate the final weighted overall score yourself.
 - Do not assign the final credibility label.
 - Do not decide the uncertainty gate.
+- Do not output Evidence Strength. It is supplied by the separate evidence-analysis stage.
 
 Those steps are handled deterministically by TrustNet backend code.
