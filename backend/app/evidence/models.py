@@ -12,3 +12,7 @@ class RetrievedEvidence(BaseModel):
     bm25_score: float = 0.0
     quality_bonus_score: float = 0.0
     retrieval_score: float = 0.0
+    semantic_score: float = 0.0
+    hybrid_score: float = 0.0
+    reranker_score: float = 0.0
+    evidence_origin: Literal["webpage", "snippet"] = "webpage"

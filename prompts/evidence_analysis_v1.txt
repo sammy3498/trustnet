@@ -56,6 +56,13 @@ Scoring direction:
 
 The evidence_strength_score must be between 0 and 100.
 
+Evidence origin may be "webpage" or "snippet".
+
+- "webpage" means TrustNet successfully retrieved and inspected the source content.
+- "snippet" means only a search-result snippet was available.
+- Treat snippet evidence as weaker and less complete than successfully retrieved webpage evidence.
+- Do not infer information that is not explicitly present in a snippet.
+
 Important rules:
 
 - High-quality evidence should influence the assessment more than low-quality evidence.

@@ -1,11 +1,17 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from backend.app.evidence.models import RetrievedEvidence
-from backend.app.retrieval.bm25 import retrieve_bm25
-from backend.app.retrieval.evidence_builder import build_evidence_from_url
+from backend.app.retrieval.evidence_builder import (
+    build_evidence_from_snippet,
+    build_evidence_from_url,
+)
+from backend.app.retrieval.hybrid import retrieve_hybrid
+from backend.app.retrieval.reranker import rerank_documents
 from backend.app.retrieval.tavily_provider import TavilySearchProvider
-
-
+from backend.app.retrieval.fusion import fuse_rankings
+from backend.app.retrieval.diversity import select_diverse_sources
+import logging
+logger = logging.getLogger(__name__)
 def run_search(
     query: str,
     max_results: int,
@@ -29,7 +35,7 @@ def search_and_retrieve(
     if alternate_query and alternate_query != query:
         queries.append(alternate_query)
 
-    # Run raw-claim search and generated-query search concurrently
+    # Run search queries concurrently
     search_result_groups = []
 
     with ThreadPoolExecutor(
@@ -49,10 +55,13 @@ def search_and_retrieve(
                 search_result_groups.append(
                     future.result()
                 )
-            except Exception:
-                continue
+            except Exception as exc:
+                logger.warning(
+                    "Search failed: %s",
+                    exc,
+            )
 
-    # Deduplicate URLs across both searches
+    # Deduplicate URLs
     seen_urls = set()
     search_items = []
 
@@ -70,7 +79,7 @@ def search_and_retrieve(
     if not search_items:
         return []
 
-    # Fetch webpages concurrently
+    # Fetch pages concurrently
     candidates = []
 
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -88,31 +97,56 @@ def search_and_retrieve(
                 candidates.append(
                     future.result()
                 )
-            except Exception:
-                continue
+            except Exception as exc:
+                result = futures[future]
+
+                logger.warning(
+                    "Failed to build evidence from %s: %s",
+                    result.url,
+                    exc,
+            )
+
+            if result.snippet.strip():
+                candidates.append(
+                    build_evidence_from_snippet(
+                        url=result.url,
+                        title=result.title,
+                        snippet=result.snippet,
+                    )
+                )
 
     if not candidates:
         return []
 
-    # Rank all fetched candidates
-    ranked = retrieve_bm25(
+    # Stage 1: hybrid BM25 + dense ranking
+    hybrid_ranked = retrieve_hybrid(
         query=query,
         documents=candidates,
         top_k=len(candidates),
     )
 
-    # Keep evidence from distinct source domains
-    diverse_results = []
-    seen_sources = set()
+    # Stage 2: rerank only the strongest hybrid candidates
+    rerank_count = min(
+        max(top_k * 2, 6),
+        len(hybrid_ranked),
+    )
 
-    for item in ranked:
-        if item.source in seen_sources:
-            continue
+    rerank_candidates = hybrid_ranked[
+        :rerank_count
+    ]
 
-        seen_sources.add(item.source)
-        diverse_results.append(item)
+    reranked = rerank_documents(
+        query=query,
+        documents=rerank_candidates,
+        top_k=len(rerank_candidates),
+    )
+    fused_ranked = fuse_rankings(
+        hybrid_ranked=rerank_candidates,
+        reranked=reranked,
+    )
 
-        if len(diverse_results) == top_k:
-            break
-
-    return diverse_results
+    # Stage 3: enforce source diversity
+    return select_diverse_sources(
+        documents=fused_ranked,
+        top_k=top_k,
+    )

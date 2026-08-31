@@ -32,13 +32,14 @@ def analyze_evidence_with_llm(
 
         evidence_parts.append(
             f"""
-    Title: {item.title}
-    URL: {item.url}
-    Source: {item.source}
-    Quality: {item.quality}
-    Evidence:
-    {excerpt}
-    """
+        Title: {item.title}
+        URL: {item.url}
+        Source: {item.source}
+        Quality: {item.quality}
+        Origin: {item.evidence_origin}
+        Evidence:
+        {excerpt}
+        """
         )
 
     evidence_text = "\n\n".join(evidence_parts)

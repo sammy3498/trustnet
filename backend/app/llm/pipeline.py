@@ -7,7 +7,7 @@ from backend.app.llm.evidence_analysis import analyze_evidence_with_llm
 from backend.app.llm.scoring import score_claim_with_llm
 from backend.app.scoring.calculator import calculate_overall_score, get_label
 from backend.app.scoring.uncertainty import evaluate_uncertainty
-
+from backend.app.evidence.domain import get_publisher_domain
 
 def timed_evidence_analysis(
     claim: str,
@@ -91,7 +91,7 @@ def analyze_claim_with_llm(
     evidence_count = len(evidence)
 
     high_quality_sources = {
-        item.source
+        get_publisher_domain(item.source)
         for item in evidence
         if item.quality == "high"
     }

@@ -105,4 +105,11 @@ Rules:
 - Do not decide the uncertainty gate.
 - Do not output Evidence Strength. It is supplied by the separate evidence-analysis stage.
 
+Evidence origin may be "webpage" or "snippet".
+
+- "webpage" means TrustNet successfully retrieved and inspected the source content.
+- "snippet" means only a search-result snippet was available.
+- Treat snippet evidence as weaker and less complete than successfully retrieved webpage evidence.
+- Do not infer information that is not explicitly present in a snippet.
+
 Those steps are handled deterministically by TrustNet backend code.
