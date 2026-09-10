@@ -11,3 +11,4 @@ class ClaimPreparationResponse(BaseModel):
     is_clear: bool
     reason: str
     search_query: str
+    verification_queries: list[str] = []

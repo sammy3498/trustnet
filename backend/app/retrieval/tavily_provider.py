@@ -20,27 +20,49 @@ class TavilySearchProvider(SearchProvider):
                 "SEARCH_API_KEY is not configured."
             )
 
-        self.client = TavilyClient(api_key=api_key)
+        self.client = TavilyClient(
+            api_key=api_key
+        )
 
     def search(
         self,
         query: str,
-        max_results: int = 10,
+        max_results: int,
+        end_date: str | None = None,
     ) -> list[SearchResult]:
+        search_args = {
+            "query": query,
+            "max_results": max_results,
+            "search_depth": "basic",
+        }
+
+        if end_date:
+            search_args["end_date"] = end_date
+
         response = self.client.search(
-            query=query,
-            max_results=max_results,
-            search_depth="basic",
+            **search_args
         )
 
         results = []
 
-        for item in response.get("results", []):
+        for item in response.get(
+            "results",
+            [],
+        ):
             results.append(
                 SearchResult(
-                    title=item.get("title", ""),
-                    url=item.get("url", ""),
-                    snippet=item.get("content", ""),
+                    title=item.get(
+                        "title",
+                        "",
+                    ),
+                    url=item.get(
+                        "url",
+                        "",
+                    ),
+                    snippet=item.get(
+                        "content",
+                        "",
+                    ),
                 )
             )
 

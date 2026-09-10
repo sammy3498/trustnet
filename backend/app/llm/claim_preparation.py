@@ -14,12 +14,23 @@ def load_claim_preparation_prompt() -> str:
     return PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def prepare_claim(claim: str) -> dict:
+def prepare_claim(
+    claim: str,
+    context: str | None = None,
+):
     system_prompt = load_claim_preparation_prompt()
+
+    if context:
+        user_prompt = (
+            f"Context:\n{context}\n\n"
+            f"Claim:\n{claim}"
+        )
+    else:
+        user_prompt = claim
 
     raw_response = get_llm_response(
         system_prompt=system_prompt,
-        user_prompt=claim,
+        user_prompt=user_prompt,
     )
 
     try:

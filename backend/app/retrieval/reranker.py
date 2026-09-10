@@ -9,7 +9,9 @@ from backend.app.retrieval.excerpt import get_relevant_excerpt
 
 load_dotenv()
 
-DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+DEFAULT_RERANKER_MODEL = (
+    "cross-encoder/ms-marco-MiniLM-L-6-v2"
+)
 
 _model = None
 
@@ -23,16 +25,22 @@ def get_reranker_model() -> CrossEncoder:
             DEFAULT_RERANKER_MODEL,
         )
 
-        _model = CrossEncoder(model_name)
+        _model = CrossEncoder(
+            model_name
+        )
 
     return _model
 
 
-def rerank_documents(
+def score_documents_for_query(
     query: str,
     documents: list[RetrievedEvidence],
-    top_k: int = 5,
-) -> list[RetrievedEvidence]:
+) -> list[
+    tuple[
+        RetrievedEvidence,
+        float,
+    ]
+]:
     if not documents:
         return []
 
@@ -50,18 +58,51 @@ def rerank_documents(
         for document in documents
     ]
 
-    scores = model.predict(pairs)
+    scores = model.predict(
+        pairs
+    )
 
     ranked = sorted(
-        zip(documents, scores),
-        key=lambda item: float(item[1]),
+        [
+            (
+                document,
+                float(score),
+            )
+            for document, score in zip(
+                documents,
+                scores,
+            )
+        ],
+        key=lambda item: item[1],
         reverse=True,
+    )
+
+    return ranked
+
+
+def rerank_documents(
+    query: str,
+    documents: list[RetrievedEvidence],
+    top_k: int = 5,
+) -> list[RetrievedEvidence]:
+    ranked = (
+        score_documents_for_query(
+            query,
+            documents,
+        )
     )
 
     results = []
 
-    for document, score in ranked[:top_k]:
-        document.reranker_score = float(score)
-        results.append(document)
+    for document, score in ranked[
+        :top_k
+    ]:
+        document.reranker_score = (
+            score
+        )
+
+        results.append(
+            document
+        )
 
     return results

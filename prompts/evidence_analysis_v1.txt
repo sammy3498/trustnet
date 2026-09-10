@@ -63,7 +63,7 @@ Evidence origin may be "webpage" or "snippet".
 - Treat snippet evidence as weaker and less complete than successfully retrieved webpage evidence.
 - Do not infer information that is not explicitly present in a snippet.
 
-Important rules:
+Important evidence rules:
 
 - High-quality evidence should influence the assessment more than low-quality evidence.
 - Multiple independent sources are stronger than repeated reports based on the same original source.
@@ -72,3 +72,40 @@ Important rules:
 - If reliable evidence conflicts and cannot be resolved, use "mixed".
 - If there is insufficient relevant evidence, use "insufficient".
 - Never output information that is not contained in the supplied evidence.
+
+Compound-claim rules:
+
+- Treat a claim containing multiple factual assertions as a set of material subclaims.
+- Evaluate each material subclaim separately before deciding the overall direction.
+- Do not treat evidence supporting only one part of a compound claim as support for the entire claim.
+- Evidence that supports one material component but does not address another component is partial support, not contradiction.
+- If an essential material component lacks adequate evidence while the other components are supported, do not automatically use "supports". Use "insufficient" when the unresolved component prevents a reliable overall judgment.
+- If reliable evidence supports one material component but contradicts another material component, the overall direction must be "mixed".
+- A materially false numerical comparison, quantity, date, causal statement, attribution, or historical characterization counts as a contradiction of that component even if the rest of the claim is correct.
+- Do not allow a correct headline number to override a materially incorrect comparison or qualification attached to that number.
+- Minor wording differences that do not change the factual meaning should not by themselves cause "mixed".
+
+Numerical and temporal rules:
+
+- Check numerical relationships explicitly when the evidence provides the required values.
+- For claims such as "double", "triple", "half", "largest", "more than", or "less than", compare the supplied figures rather than relying on the wording of a source.
+- If the evidence establishes a number but materially contradicts the claim's comparison involving that number, treat that component as contradicted.
+- Earlier values for cumulative or time-varying quantities do not contradict later values merely because the numbers differ.
+- Evidence about a different date or period should be treated as neutral or partial unless it genuinely conflicts with the claim.
+
+Overall direction rules:
+
+Use "supports" only when the material factual components are adequately supported and no material component is contradicted.
+
+Use "contradicts" when reliable evidence materially contradicts the central claim and there is no comparably important supported component that makes the overall result mixed.
+
+Use "mixed" when:
+- reliable evidence supports and contradicts different material parts of the claim, or
+- reliable sources genuinely disagree on a material factual issue that cannot be resolved from the supplied evidence.
+
+Use "insufficient" when:
+- important material components are not adequately addressed,
+- the available evidence is too weak or irrelevant to determine direction,
+- or the evidence does not permit a reliable overall judgment.
+
+The summary must explicitly mention any material component that is contradicted, unresolved, or insufficiently evidenced.

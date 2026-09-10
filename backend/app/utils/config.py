@@ -6,22 +6,27 @@ FACTOR_WEIGHTS = {
     "incentive_conflict": 0.07,
 }
 
+
 SCORE_THRESHOLDS = {
     "highly_credible": 80,
     "moderately_credible": 60,
     "low_credibility": 40,
 }
 
+
 UNCERTAINTY_RULES = {
     "minimum_evidence_count": 2,
     "minimum_high_quality_count": 1,
+    "minimum_medium_quality_count_without_high": 2,
 }
+
 
 SUPPORTED_INPUT_TYPES = {
     "claim",
     "text",
     "url",
 }
+
 
 SUPPORTED_MODES = {
     "normal",
