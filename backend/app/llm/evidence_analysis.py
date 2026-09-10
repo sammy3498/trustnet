@@ -24,7 +24,7 @@ from backend.app.retrieval.excerpt import (
 
 
 PROMPT_PATH = Path(
-    "prompts/evidence_analysis_v2.txt"
+    "prompts/evidence_analysis_v3.txt"
 )
 
 EVIDENCE_ANALYSIS_SCHEMA = (
