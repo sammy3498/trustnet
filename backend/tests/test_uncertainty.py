@@ -19,8 +19,8 @@ def test_insufficient_evidence():
     assert level == "high"
 
 
-def test_no_reliable_evidence():
-    gate, level, _ = (
+def test_no_reliable_evidence_has_medium_uncertainty():
+    gate, level, reason = (
         evaluate_uncertainty(
             evidence_count=5,
             high_quality_count=0,
@@ -31,11 +31,12 @@ def test_no_reliable_evidence():
         )
     )
 
-    assert gate is True
-    assert level == "high"
+    assert gate is False
+    assert level == "medium"
+    assert "provenance" in reason.lower()
 
 
-def test_one_medium_source_is_not_enough():
+def test_one_medium_source_has_medium_uncertainty():
     gate, level, _ = (
         evaluate_uncertainty(
             evidence_count=3,
@@ -47,8 +48,24 @@ def test_one_medium_source_is_not_enough():
         )
     )
 
-    assert gate is True
-    assert level == "high"
+    assert gate is False
+    assert level == "medium"
+
+
+def test_low_quality_contradicting_evidence_has_medium_uncertainty():
+    gate, level, _ = (
+        evaluate_uncertainty(
+            evidence_count=5,
+            high_quality_count=0,
+            conflicting_evidence=False,
+            claim_is_clear=True,
+            evidence_direction="contradicts",
+            medium_quality_count=0,
+        )
+    )
+
+    assert gate is False
+    assert level == "medium"
 
 
 def test_two_medium_sources_are_sufficient():
@@ -100,7 +117,7 @@ def test_reliable_conflicting_evidence_does_not_abstain():
     assert "mixed" in reason.lower()
 
 
-def test_mixed_direction_does_not_abstain():
+def test_mixed_direction_does_not_abstain_with_reliable_evidence():
     gate, level, _ = (
         evaluate_uncertainty(
             evidence_count=4,
@@ -117,7 +134,7 @@ def test_mixed_direction_does_not_abstain():
 
 
 def test_unreliable_mixed_evidence_still_abstains():
-    gate, level, _ = (
+    gate, level, reason = (
         evaluate_uncertainty(
             evidence_count=4,
             high_quality_count=0,
@@ -130,6 +147,7 @@ def test_unreliable_mixed_evidence_still_abstains():
 
     assert gate is True
     assert level == "high"
+    assert "mixed" in reason.lower()
 
 
 def test_insufficient_direction_forces_gate():

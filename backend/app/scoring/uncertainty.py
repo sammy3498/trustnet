@@ -52,24 +52,33 @@ def evaluate_uncertainty(
         ]
     )
 
-    if not (
+    has_reliable_evidence = (
         has_high_quality
         or has_medium_consensus
-    ):
-        return (
-            True,
-            "high",
-            "No high-quality evidence or sufficient independent medium-quality evidence was found.",
-        )
+    )
 
     if (
         conflicting_evidence
         or evidence_direction == "mixed"
     ):
+        if not has_reliable_evidence:
+            return (
+                True,
+                "high",
+                "The evidence is mixed or conflicting, but no high-quality evidence or sufficient independent medium-quality evidence was found.",
+            )
+
         return (
             False,
             "medium",
             "Reliable evidence is mixed or contains unresolved conflicts.",
+        )
+
+    if not has_reliable_evidence:
+        return (
+            False,
+            "medium",
+            "The evidence direction is consistent, but source provenance is weak because no high-quality evidence or sufficient independent medium-quality evidence was found.",
         )
 
     return (
