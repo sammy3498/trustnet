@@ -21,6 +21,7 @@ class AVeriTeCExample:
 
 def load_averitec(
     path: Path | str,
+    skip_invalid_claims: bool = False,
 ) -> list[AVeriTeCExample]:
     path = Path(
         path
@@ -70,6 +71,9 @@ def load_averitec(
             )
             or not claim.strip()
         ):
+            if skip_invalid_claims:
+                continue
+
             raise ValueError(
                 f"Missing or invalid claim at index {index}."
             )
