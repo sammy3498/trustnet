@@ -30,8 +30,18 @@ from eval.snapshots.averitec import (
 )
 
 
-DATASET_PATH = Path(
-    "eval/datasets/averitec/dev.json"
+DATASET_PATHS = {
+    "dev": Path(
+        "eval/datasets/averitec/dev.json"
+    ),
+    "train": Path(
+        "eval/datasets/averitec/train.json"
+    ),
+}
+
+SUPPORTED_DATASET_SPLITS = (
+    "dev",
+    "train",
 )
 
 SNAPSHOT_ROOT = Path(
@@ -62,25 +72,37 @@ def get_sample_id(
 
 
 def get_sample_root(
+    dataset_split: str,
     per_class: int,
     seed: int,
 ) -> Path:
+    sample_id = get_sample_id(
+        per_class,
+        seed,
+    )
+
+    if dataset_split == "dev":
+        return (
+            SNAPSHOT_ROOT
+            / sample_id
+        )
+
     return (
         SNAPSHOT_ROOT
-        / get_sample_id(
-            per_class,
-            seed,
-        )
+        / dataset_split
+        / sample_id
     )
 
 
 def get_manifest_path(
+    dataset_split: str,
     protocol: str,
     per_class: int,
     seed: int,
 ) -> Path:
     return (
         get_sample_root(
+            dataset_split,
             per_class,
             seed,
         )
@@ -90,18 +112,34 @@ def get_manifest_path(
 
 
 def get_output_path(
+    dataset_split: str,
     protocol: str,
     per_class: int,
     seed: int,
 ) -> Path:
-    return (
-        RESULTS_DIR
-        / (
+    sample_id = get_sample_id(
+        per_class,
+        seed,
+    )
+
+    if dataset_split == "dev":
+        filename = (
             "averitec_stratified_"
             f"{protocol}_"
-            f"{get_sample_id(per_class, seed)}"
-            ".json"
+            f"{sample_id}.json"
         )
+
+    else:
+        filename = (
+            "averitec_stratified_"
+            f"{dataset_split}_"
+            f"{protocol}_"
+            f"{sample_id}.json"
+        )
+
+    return (
+        RESULTS_DIR
+        / filename
     )
 
 
@@ -139,11 +177,13 @@ def build_unclear_result(
 
 
 def load_manifest(
+    dataset_split: str,
     protocol: str,
     per_class: int,
     seed: int,
 ) -> dict:
     path = get_manifest_path(
+        dataset_split,
         protocol,
         per_class,
         seed,
@@ -167,10 +207,22 @@ def load_manifest(
 def validate_manifest(
     manifest: dict,
     selected,
+    dataset_split: str,
     protocol: str,
     per_class: int,
     seed: int,
 ):
+    if (
+        manifest.get(
+            "split"
+        )
+        != dataset_split
+    ):
+        raise ValueError(
+            "Manifest dataset split does "
+            "not match requested split."
+        )
+
     if (
         manifest.get(
             "evaluation_protocol"
@@ -262,6 +314,7 @@ def validate_manifest(
 def validate_snapshot(
     snapshot: dict,
     example,
+    dataset_split: str,
     protocol: str,
 ):
     if (
@@ -295,6 +348,18 @@ def validate_snapshot(
         raise ValueError(
             "Snapshot gold label does "
             "not match dataset example."
+        )
+
+    if (
+        snapshot.get(
+            "split"
+        )
+        != dataset_split
+    ):
+        raise ValueError(
+            "Snapshot dataset split "
+            "does not match requested "
+            "split."
         )
 
     if (
@@ -368,16 +433,33 @@ def load_existing_results(
 
 
 def run(
+    dataset_split: str,
     protocol: str,
     per_class: int,
     seed: int,
     overwrite: bool = False,
 ):
+    dataset_path = (
+        DATASET_PATHS[
+            dataset_split
+        ]
+    )
+
+    if not dataset_path.exists():
+        raise FileNotFoundError(
+            "Missing AVeriTeC dataset: "
+            f"{dataset_path}"
+        )
+
     examples = load_averitec(
-        DATASET_PATH
+        dataset_path,
+        skip_invalid_claims=(
+            dataset_split == "train"
+        ),
     )
 
     manifest = load_manifest(
+        dataset_split,
         protocol,
         per_class,
         seed,
@@ -408,6 +490,9 @@ def run(
     validate_manifest(
         manifest=manifest,
         selected=selected,
+        dataset_split=(
+            dataset_split
+        ),
         protocol=protocol,
         per_class=per_class,
         seed=seed,
@@ -415,6 +500,9 @@ def run(
 
     output_path = (
         get_output_path(
+            dataset_split=(
+                dataset_split
+            ),
             protocol=protocol,
             per_class=per_class,
             seed=seed,
@@ -444,6 +532,10 @@ def run(
             records_by_index[
                 index
             ] = record
+
+    print(
+        f"DATASET: {dataset_split}"
+    )
 
     print(
         f"PROTOCOL: {protocol}"
@@ -482,6 +574,7 @@ def run(
 
     sample_root = (
         get_sample_root(
+            dataset_split,
             per_class,
             seed,
         )
@@ -563,6 +656,7 @@ def run(
         validate_snapshot(
             snapshot,
             example,
+            dataset_split,
             protocol,
         )
 
@@ -638,6 +732,10 @@ def run(
             )
 
             record = {
+                "dataset": "AVeriTeC",
+                "dataset_split": (
+                    dataset_split
+                ),
                 "evaluation_protocol": (
                     protocol
                 ),
@@ -845,6 +943,10 @@ def run(
 
         except Exception as exc:
             record = {
+                "dataset": "AVeriTeC",
+                "dataset_split": (
+                    dataset_split
+                ),
                 "evaluation_protocol": (
                     protocol
                 ),
@@ -958,6 +1060,10 @@ def run(
     )
 
     print(
+        f"Dataset: {dataset_split}"
+    )
+
+    print(
         f"Protocol: {protocol}"
     )
 
@@ -1012,6 +1118,14 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--dataset",
+        choices=(
+            SUPPORTED_DATASET_SPLITS
+        ),
+        default="dev",
+    )
+
+    parser.add_argument(
         "--protocol",
         choices=(
             EVALUATION_PROTOCOLS
@@ -1045,6 +1159,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run(
+        dataset_split=(
+            args.dataset
+        ),
         protocol=args.protocol,
         per_class=args.per_class,
         seed=args.seed,

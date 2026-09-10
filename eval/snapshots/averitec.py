@@ -17,6 +17,11 @@ SUPPORTED_SNAPSHOT_VERSIONS = {
     2,
 }
 
+SUPPORTED_DATASET_SPLITS = {
+    "dev",
+    "train",
+}
+
 LABEL_ORDER = [
     "Supported",
     "Refuted",
@@ -68,7 +73,17 @@ def save_averitec_snapshot(
     search_results: int,
     top_k: int,
     evaluation_protocol: str,
+    dataset_split: str = "dev",
 ):
+    if (
+        dataset_split
+        not in SUPPORTED_DATASET_SPLITS
+    ):
+        raise ValueError(
+            "Unsupported AVeriTeC "
+            f"dataset split: {dataset_split}"
+        )
+
     path.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -82,7 +97,7 @@ def save_averitec_snapshot(
             evaluation_protocol
         ),
         "dataset": "AVeriTeC",
-        "split": "dev",
+        "split": dataset_split,
         "example_index": (
             example.index
         ),

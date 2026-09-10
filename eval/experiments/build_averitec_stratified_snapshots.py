@@ -28,8 +28,18 @@ from eval.snapshots.averitec import (
 )
 
 
-DATASET_PATH = Path(
-    "eval/datasets/averitec/dev.json"
+DATASET_PATHS = {
+    "dev": Path(
+        "eval/datasets/averitec/dev.json"
+    ),
+    "train": Path(
+        "eval/datasets/averitec/train.json"
+    ),
+}
+
+SUPPORTED_DATASET_SPLITS = (
+    "dev",
+    "train",
 )
 
 SNAPSHOT_ROOT = Path(
@@ -62,25 +72,37 @@ def get_sample_id(
 
 
 def get_sample_root(
+    dataset_split: str,
     per_class: int,
     seed: int,
 ) -> Path:
+    sample_id = get_sample_id(
+        per_class,
+        seed,
+    )
+
+    if dataset_split == "dev":
+        return (
+            SNAPSHOT_ROOT
+            / sample_id
+        )
+
     return (
         SNAPSHOT_ROOT
-        / get_sample_id(
-            per_class,
-            seed,
-        )
+        / dataset_split
+        / sample_id
     )
 
 
 def get_manifest_path(
+    dataset_split: str,
     protocol: str,
     per_class: int,
     seed: int,
 ) -> Path:
     return (
         get_sample_root(
+            dataset_split,
             per_class,
             seed,
         )
@@ -91,6 +113,7 @@ def get_manifest_path(
 
 def load_excluded_indices(
     manifest_path: Path | None,
+    dataset_split: str,
 ) -> set[int]:
     if manifest_path is None:
         return set()
@@ -107,6 +130,21 @@ def load_excluded_indices(
     ) as file:
         manifest = json.load(
             file
+        )
+
+    manifest_split = manifest.get(
+        "split"
+    )
+
+    if (
+        manifest_split is not None
+        and manifest_split
+        != dataset_split
+    ):
+        raise ValueError(
+            "Exclusion manifest split "
+            "does not match requested "
+            "dataset split."
         )
 
     examples = manifest.get(
@@ -147,6 +185,7 @@ def load_excluded_indices(
 
 def build_manifest(
     selected,
+    dataset_split: str,
     protocol: str,
     per_class: int,
     seed: int,
@@ -156,7 +195,7 @@ def build_manifest(
     return {
         "snapshot_layout_version": 2,
         "dataset": "AVeriTeC",
-        "split": "dev",
+        "split": dataset_split,
         "evaluation_protocol": (
             protocol
         ),
@@ -200,12 +239,14 @@ def build_manifest(
 
 def save_manifest(
     manifest: dict,
+    dataset_split: str,
     protocol: str,
     per_class: int,
     seed: int,
     overwrite: bool,
 ):
     path = get_manifest_path(
+        dataset_split,
         protocol,
         per_class,
         seed,
@@ -259,19 +300,36 @@ def save_manifest(
 
 
 def run(
+    dataset_split: str,
     protocol: str,
     per_class: int,
     seed: int,
     overwrite: bool = False,
     exclusion_manifest: Path | None = None,
 ):
+    dataset_path = (
+        DATASET_PATHS[
+            dataset_split
+        ]
+    )
+
+    if not dataset_path.exists():
+        raise FileNotFoundError(
+            "Missing AVeriTeC dataset: "
+            f"{dataset_path}"
+        )
+
     examples = load_averitec(
-        DATASET_PATH
+        dataset_path,
+        skip_invalid_claims=(
+            dataset_split == "train"
+        ),
     )
 
     excluded_indices = (
         load_excluded_indices(
-            exclusion_manifest
+            exclusion_manifest,
+            dataset_split,
         )
     )
 
@@ -292,6 +350,9 @@ def run(
 
     manifest = build_manifest(
         selected=selected,
+        dataset_split=(
+            dataset_split
+        ),
         protocol=protocol,
         per_class=per_class,
         seed=seed,
@@ -301,6 +362,10 @@ def run(
         exclusion_manifest=(
             exclusion_manifest
         ),
+    )
+
+    print(
+        f"DATASET: {dataset_split}"
     )
 
     print(
@@ -336,6 +401,9 @@ def run(
 
     save_manifest(
         manifest=manifest,
+        dataset_split=(
+            dataset_split
+        ),
         protocol=protocol,
         per_class=per_class,
         seed=seed,
@@ -344,6 +412,7 @@ def run(
 
     sample_root = (
         get_sample_root(
+            dataset_split,
             per_class,
             seed,
         )
@@ -491,6 +560,9 @@ def run(
             evaluation_protocol=(
                 protocol
             ),
+            dataset_split=(
+                dataset_split
+            ),
         )
 
         print(
@@ -506,6 +578,14 @@ def run(
 if __name__ == "__main__":
     parser = (
         argparse.ArgumentParser()
+    )
+
+    parser.add_argument(
+        "--dataset",
+        choices=(
+            SUPPORTED_DATASET_SPLITS
+        ),
+        default="dev",
     )
 
     parser.add_argument(
@@ -548,6 +628,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run(
+        dataset_split=(
+            args.dataset
+        ),
         protocol=args.protocol,
         per_class=args.per_class,
         seed=args.seed,
