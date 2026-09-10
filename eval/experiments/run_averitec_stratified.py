@@ -712,6 +712,15 @@ def run(
                         [],
                     )
                 ),
+                "evidence_assessments": (
+                    result.get(
+                        "evidence_analysis",
+                        {},
+                    ).get(
+                        "evidence_assessments",
+                        [],
+                    )
+                ),
                 "uncertainty": (
                     result.get(
                         "uncertainty"
