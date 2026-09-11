@@ -19,6 +19,7 @@ from backend.app.models.evidence_analysis import (
     EvidenceAnalysisResponse,
 )
 from backend.app.retrieval.excerpt import (
+    DEFAULT_PASSAGE_MAX_CHARS,
     get_relevant_excerpt,
 )
 
@@ -126,7 +127,9 @@ def analyze_evidence_with_llm(
             get_relevant_excerpt(
                 text=item.text,
                 query=claim,
-                max_chars=3000,
+                max_chars=(
+                    DEFAULT_PASSAGE_MAX_CHARS
+                ),
             )
         )
 
