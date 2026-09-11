@@ -61,9 +61,7 @@ LABELS = [
 DIRECTION_TO_LABEL = {
     "supports": "Supported",
     "contradicts": "Refuted",
-    "insufficient": (
-        "Not Enough Evidence"
-    ),
+    "insufficient": "Not Enough Evidence",
     "mixed": (
         "Conflicting Evidence/"
         "Cherrypicking"
@@ -766,7 +764,6 @@ def compute_metrics(
     )
 
     per_class = {}
-
     f1_values = []
 
     for label in LABELS:
@@ -889,8 +886,7 @@ def dry_run(
     )
     print(
         "PRIMARY METRICS:",
-        "full accuracy + "
-        "macro-F1",
+        "full accuracy + macro-F1",
     )
     print(
         "PREDECLARED SECONDARY "
@@ -961,6 +957,28 @@ def dry_run(
     )
 
 
+def save_progress(
+    records: list[dict],
+    records_by_index: dict,
+    result_path: Path,
+):
+    ordered = [
+        records_by_index[
+            item["index"]
+        ]
+        for item in records
+        if item["index"]
+        in records_by_index
+    ]
+
+    save_json(
+        result_path,
+        ordered,
+    )
+
+    return ordered
+
+
 def run(
     records: list[dict],
     dataset_by_index: dict,
@@ -987,19 +1005,6 @@ def run(
         protocol,
     )
 
-    if (
-        state[
-            "snapshots_missing"
-        ]
-        != 0
-    ):
-        raise RuntimeError(
-            "Validation snapshots are "
-            "incomplete. Finish snapshot "
-            "building before Evidence "
-            "Analysis."
-        )
-
     existing = state[
         "existing"
     ]
@@ -1022,6 +1027,9 @@ def run(
     attempts = 0
     recovered = 0
     zero_evidence_completed = 0
+    missing_skipped = 0
+    llm_cap_skipped = 0
+    stopped_on_error = False
 
     result_path = get_result_path(
         protocol
@@ -1038,6 +1046,18 @@ def run(
     print(
         "VALIDATION CASES:",
         len(records),
+    )
+    print(
+        "SNAPSHOTS READY AT START:",
+        state[
+            "snapshots_ready"
+        ],
+    )
+    print(
+        "SNAPSHOTS MISSING AT START:",
+        state[
+            "snapshots_missing"
+        ],
     )
     print(
         "MAX NEW LLM CALLS:",
@@ -1075,6 +1095,20 @@ def run(
                 f"{len(records)}] "
                 "skip completed"
             )
+            continue
+
+        if not snapshot_exists(
+            protocol,
+            index,
+        ):
+            missing_skipped += 1
+
+            print(
+                f"[{position}/"
+                f"{len(records)}] "
+                "snapshot missing"
+            )
+
             continue
 
         snapshot = load_snapshot(
@@ -1119,18 +1153,12 @@ def run(
 
             zero_evidence_completed += 1
 
-            ordered = [
-                records_by_index[
-                    item["index"]
-                ]
-                for item in records
-                if item["index"]
-                in records_by_index
-            ]
-
-            save_json(
-                result_path,
-                ordered,
+            save_progress(
+                records=records,
+                records_by_index=(
+                    records_by_index
+                ),
+                result_path=result_path,
             )
 
             print(
@@ -1138,6 +1166,7 @@ def run(
                 f"{len(records)}] "
                 "zero evidence -> NEI"
             )
+
             continue
 
         raw_path = (
@@ -1171,18 +1200,12 @@ def run(
 
             recovered += 1
 
-            ordered = [
-                records_by_index[
-                    item["index"]
-                ]
-                for item in records
-                if item["index"]
-                in records_by_index
-            ]
-
-            save_json(
-                result_path,
-                ordered,
+            save_progress(
+                records=records,
+                records_by_index=(
+                    records_by_index
+                ),
+                result_path=result_path,
             )
 
             print(
@@ -1191,14 +1214,19 @@ def run(
                 "recovered cached raw "
                 "result"
             )
+
             continue
 
         if attempts >= max_attempts:
+            llm_cap_skipped += 1
+
             print(
-                "NEW LLM CALL LIMIT "
-                "REACHED."
+                f"[{position}/"
+                f"{len(records)}] "
+                "new-call cap reached"
             )
-            break
+
+            continue
 
         attempts += 1
 
@@ -1220,11 +1248,13 @@ def run(
                 "LLM ERROR:",
                 type(exc).__name__,
             )
+
             print(
-                "RUN STOPPED. "
-                "No processed result "
-                "saved for this case."
+                "RUN STOPPED AFTER "
+                "LLM ERROR."
             )
+
+            stopped_on_error = True
             break
 
         latency_ms = round(
@@ -1266,18 +1296,12 @@ def run(
             index
         ] = record
 
-        ordered = [
-            records_by_index[
-                item["index"]
-            ]
-            for item in records
-            if item["index"]
-            in records_by_index
-        ]
-
-        save_json(
-            result_path,
-            ordered,
+        save_progress(
+            records=records,
+            records_by_index=(
+                records_by_index
+            ),
+            result_path=result_path,
         )
 
         print(
@@ -1286,18 +1310,12 @@ def run(
             "completed"
         )
 
-    ordered = [
-        records_by_index[
-            item["index"]
-        ]
-        for item in records
-        if item["index"]
-        in records_by_index
-    ]
-
-    save_json(
-        result_path,
-        ordered,
+    ordered = save_progress(
+        records=records,
+        records_by_index=(
+            records_by_index
+        ),
+        result_path=result_path,
     )
 
     completed = [
@@ -1323,6 +1341,19 @@ def run(
     print(
         "ZERO-EVIDENCE COMPLETED:",
         zero_evidence_completed,
+    )
+    print(
+        "MISSING SNAPSHOTS SKIPPED:",
+        missing_skipped,
+    )
+    print(
+        "READY CASES SKIPPED BY "
+        "LLM CAP:",
+        llm_cap_skipped,
+    )
+    print(
+        "STOPPED ON LLM ERROR:",
+        stopped_on_error,
     )
     print(
         "COMPLETED:",
