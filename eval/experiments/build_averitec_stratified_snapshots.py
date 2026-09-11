@@ -76,9 +76,11 @@ def get_sample_root(
     per_class: int,
     seed: int,
 ) -> Path:
-    sample_id = get_sample_id(
-        per_class,
-        seed,
+    sample_id = (
+        get_sample_id(
+            per_class,
+            seed,
+        )
     )
 
     if dataset_split == "dev":
@@ -112,13 +114,17 @@ def get_manifest_path(
 
 
 def load_excluded_indices(
-    manifest_path: Path | None,
+    manifest_path: (
+        Path | None
+    ),
     dataset_split: str,
 ) -> set[int]:
     if manifest_path is None:
         return set()
 
-    if not manifest_path.exists():
+    if not (
+        manifest_path.exists()
+    ):
         raise FileNotFoundError(
             "Exclusion manifest not "
             f"found: {manifest_path}"
@@ -132,8 +138,10 @@ def load_excluded_indices(
             file
         )
 
-    manifest_split = manifest.get(
-        "split"
+    manifest_split = (
+        manifest.get(
+            "split"
+        )
     )
 
     if (
@@ -189,8 +197,12 @@ def build_manifest(
     protocol: str,
     per_class: int,
     seed: int,
-    excluded_indices: set[int],
-    exclusion_manifest: Path | None,
+    excluded_indices: (
+        set[int]
+    ),
+    exclusion_manifest: (
+        Path | None
+    ),
 ) -> dict:
     return {
         "snapshot_layout_version": 2,
@@ -228,11 +240,18 @@ def build_manifest(
         ),
         "examples": [
             {
-                "index": example.index,
-                "label": example.label,
-                "claim": example.claim,
+                "index": (
+                    example.index
+                ),
+                "label": (
+                    example.label
+                ),
+                "claim": (
+                    example.claim
+                ),
             }
-            for example in selected
+            for example
+            in selected
         ],
     }
 
@@ -245,11 +264,13 @@ def save_manifest(
     seed: int,
     overwrite: bool,
 ):
-    path = get_manifest_path(
-        dataset_split,
-        protocol,
-        per_class,
-        seed,
+    path = (
+        get_manifest_path(
+            dataset_split,
+            protocol,
+            per_class,
+            seed,
+        )
     )
 
     path.parent.mkdir(
@@ -305,7 +326,9 @@ def run(
     per_class: int,
     seed: int,
     overwrite: bool = False,
-    exclusion_manifest: Path | None = None,
+    exclusion_manifest: (
+        Path | None
+    ) = None,
 ):
     dataset_path = (
         DATASET_PATHS[
@@ -313,7 +336,9 @@ def run(
         ]
     )
 
-    if not dataset_path.exists():
+    if not (
+        dataset_path.exists()
+    ):
         raise FileNotFoundError(
             "Missing AVeriTeC dataset: "
             f"{dataset_path}"
@@ -322,7 +347,8 @@ def run(
     examples = load_averitec(
         dataset_path,
         skip_invalid_claims=(
-            dataset_split == "train"
+            dataset_split
+            == "train"
         ),
     )
 
@@ -418,14 +444,18 @@ def run(
         )
     )
 
-    for number, example in enumerate(
-        selected,
-        start=1,
+    for number, example in (
+        enumerate(
+            selected,
+            start=1,
+        )
     ):
-        path = get_snapshot_path(
-            sample_root,
-            protocol,
-            example.index,
+        path = (
+            get_snapshot_path(
+                sample_root,
+                protocol,
+                example.index,
+            )
         )
 
         print()
@@ -470,9 +500,11 @@ def run(
             )
         )
 
-        prepared = prepare_claim(
-            example.claim,
-            context=context,
+        prepared = (
+            prepare_claim(
+                example.claim,
+                context=context,
+            )
         )
 
         print(
@@ -509,40 +541,34 @@ def run(
             retrieval_end_date,
         )
 
-        if prepared.get(
-            "is_clear"
-        ):
-            evidence = (
-                search_and_retrieve(
-                    query=prepared[
-                        "normalized_claim"
-                    ],
-                    alternate_query=(
-                        prepared.get(
-                            "search_query"
-                        )
-                    ),
-                    verification_queries=(
-                        prepared.get(
-                            "verification_queries",
-                            [],
-                        )
-                    ),
-                    search_results=(
-                        SEARCH_RESULTS
-                    ),
-                    top_k=TOP_K,
-                    end_date=(
-                        retrieval_end_date
-                    ),
-                    excluded_result_patterns=(
-                        AVERITEC_BENCHMARK_EXCLUSIONS
-                    ),
-                )
+        evidence = (
+            search_and_retrieve(
+                query=prepared[
+                    "normalized_claim"
+                ],
+                alternate_query=(
+                    prepared.get(
+                        "search_query"
+                    )
+                ),
+                verification_queries=(
+                    prepared.get(
+                        "verification_queries",
+                        [],
+                    )
+                ),
+                search_results=(
+                    SEARCH_RESULTS
+                ),
+                top_k=TOP_K,
+                end_date=(
+                    retrieval_end_date
+                ),
+                excluded_result_patterns=(
+                    AVERITEC_BENCHMARK_EXCLUSIONS
+                ),
             )
-
-        else:
-            evidence = []
+        )
 
         save_averitec_snapshot(
             path=path,

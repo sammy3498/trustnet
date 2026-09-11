@@ -1,11 +1,15 @@
 import json
 import re
 from datetime import datetime
-from email.utils import parsedate_to_datetime
+from email.utils import (
+    parsedate_to_datetime,
+)
 from html.parser import HTMLParser
+from io import BytesIO
 
 import httpx
 import trafilatura
+from pypdf import PdfReader
 
 
 PUBLICATION_META_KEYS = {
@@ -62,6 +66,9 @@ MONTH_PATTERN = (
     r"July|August|September|October|November|December|"
     r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
 )
+
+MAX_PDF_PAGES = 80
+MAX_PDF_CHARS = 250000
 
 
 class FetchedPageText(str):
@@ -261,7 +268,8 @@ class PublicationMetadataParser(
             if self.capture_depth == 0:
                 text = " ".join(
                     part.strip()
-                    for part in self.capture_parts
+                    for part
+                    in self.capture_parts
                     if part.strip()
                 )
 
@@ -519,6 +527,93 @@ def extract_publication_date_from_html(
     return None
 
 
+def is_pdf_content(
+    url: str,
+    content_type: str,
+) -> bool:
+    clean_url = (
+        url.split(
+            "?",
+            1,
+        )[0]
+        .split(
+            "#",
+            1,
+        )[0]
+        .lower()
+    )
+
+    return (
+        "application/pdf"
+        in content_type.lower()
+        or clean_url.endswith(
+            ".pdf"
+        )
+    )
+
+
+def extract_pdf_text(
+    content: bytes,
+) -> str:
+    reader = PdfReader(
+        BytesIO(
+            content
+        )
+    )
+
+    parts = []
+    total_chars = 0
+
+    for page_number, page in enumerate(
+        reader.pages
+    ):
+        if (
+            page_number
+            >= MAX_PDF_PAGES
+        ):
+            break
+
+        text = (
+            page.extract_text()
+            or ""
+        ).strip()
+
+        if not text:
+            continue
+
+        remaining = (
+            MAX_PDF_CHARS
+            - total_chars
+        )
+
+        if remaining <= 0:
+            break
+
+        text = text[
+            :remaining
+        ]
+
+        parts.append(
+            text
+        )
+
+        total_chars += len(
+            text
+        )
+
+    result = "\n\n".join(
+        parts
+    ).strip()
+
+    if not result:
+        raise ValueError(
+            "Could not extract readable "
+            "text from PDF."
+        )
+
+    return result
+
+
 def fetch_webpage(
     url: str,
 ) -> str:
@@ -537,6 +632,26 @@ def fetch_webpage(
 
         response.raise_for_status()
 
+    content_type = (
+        response.headers.get(
+            "content-type",
+            "",
+        )
+    )
+
+    if is_pdf_content(
+        url,
+        content_type,
+    ):
+        text = extract_pdf_text(
+            response.content
+        )
+
+        return FetchedPageText(
+            text,
+            published_date=None,
+        )
+
     published_date = (
         extract_publication_date_from_html(
             response.text
@@ -551,7 +666,8 @@ def fetch_webpage(
 
     if not text:
         raise ValueError(
-            f"Could not extract readable content from {url}"
+            "Could not extract readable "
+            f"content from {url}"
         )
 
     return FetchedPageText(

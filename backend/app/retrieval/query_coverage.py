@@ -9,11 +9,17 @@ from backend.app.evidence.models import (
 from backend.app.retrieval.reranker import (
     score_documents_for_query,
 )
+from backend.app.retrieval.temporal import (
+    get_soft_temporal_fit_score,
+)
 
 
 DEFAULT_MIN_QUERY_RELEVANCE_SCORE = 0.0
 
 RECOVERY_MAX_SEARCH_RANK = 2
+SNIPPET_RECOVERY_MAX_SEARCH_RANK = 1
+
+TEMPORAL_QUERY_BONUS_WEIGHT = 3.0
 
 RELIABLE_QUALITIES = {
     "high",
@@ -42,16 +48,58 @@ def get_min_query_relevance_score() -> float:
         )
 
 
+def get_temporally_adjusted_score(
+    raw_score: float,
+    document: RetrievedEvidence,
+    reference_text: str,
+) -> float:
+    temporal_fit = (
+        get_soft_temporal_fit_score(
+            reference_text=(
+                reference_text
+            ),
+            title=document.title,
+            text=document.text,
+            published_date=(
+                document.published_date
+            ),
+        )
+    )
+
+    temporal_adjustment = (
+        TEMPORAL_QUERY_BONUS_WEIGHT
+        * (
+            temporal_fit - 0.5
+        )
+    )
+
+    return (
+        raw_score
+        + temporal_adjustment
+    )
+
+
 def select_query_aware_evidence(
-    primary_ranked: list[RetrievedEvidence],
-    fallback_ranked: list[RetrievedEvidence],
-    verification_queries: list[str] | None,
+    primary_ranked: list[
+        RetrievedEvidence
+    ],
+    fallback_ranked: list[
+        RetrievedEvidence
+    ],
+    verification_queries: (
+        list[str] | None
+    ),
     url_query_ranks: dict[
         str,
         dict[str, int],
     ],
     top_k: int,
-) -> list[RetrievedEvidence]:
+    temporal_reference_text: (
+        str | None
+    ) = None,
+) -> list[
+    RetrievedEvidence
+]:
     if top_k <= 0:
         return []
 
@@ -79,11 +127,16 @@ def select_query_aware_evidence(
         document: RetrievedEvidence,
         enforce_publisher_diversity: bool,
     ) -> bool:
-        if document.url in seen_urls:
+        if (
+            document.url
+            in seen_urls
+        ):
             return False
 
-        publisher = get_publisher(
-            document
+        publisher = (
+            get_publisher(
+                document
+            )
         )
 
         if (
@@ -137,12 +190,15 @@ def select_query_aware_evidence(
         return False
 
     for verification_query in (
-        verification_queries or []
+        verification_queries
+        or []
     ):
         candidate_documents = []
         search_ranks = {}
 
-        for document in fallback_ranked:
+        for document in (
+            fallback_ranked
+        ):
             query_ranks = (
                 url_query_ranks.get(
                     document.url,
@@ -177,9 +233,21 @@ def select_query_aware_evidence(
             )
         )
 
+        reference_text = (
+            verification_query
+            or temporal_reference_text
+            or ""
+        )
+
         all_candidates = [
             (
-                score,
+                get_temporally_adjusted_score(
+                    raw_score=score,
+                    document=document,
+                    reference_text=(
+                        reference_text
+                    ),
+                ),
                 search_ranks[
                     document.url
                 ],
@@ -198,7 +266,8 @@ def select_query_aware_evidence(
 
         qualified_candidates = [
             item
-            for item in all_candidates
+            for item
+            in all_candidates
             if item[0]
             >= minimum_relevance
         ]
@@ -219,11 +288,25 @@ def select_query_aware_evidence(
                 document,
             ) = best_candidate
 
-            if (
+            reliable_recovery = (
                 search_rank
                 <= RECOVERY_MAX_SEARCH_RANK
                 and document.quality
                 in RELIABLE_QUALITIES
+            )
+
+            snippet_recovery = (
+                document.evidence_origin
+                == "snippet"
+                and search_rank
+                <= (
+                    SNIPPET_RECOVERY_MAX_SEARCH_RANK
+                )
+            )
+
+            if (
+                reliable_recovery
+                or snippet_recovery
             ):
                 try_add_candidates(
                     [
@@ -231,13 +314,25 @@ def select_query_aware_evidence(
                     ]
                 )
 
-        if len(selected) >= top_k:
+        if (
+            len(
+                selected
+            )
+            >= top_k
+        ):
             return selected[
                 :top_k
             ]
 
-    for document in primary_ranked:
-        if len(selected) >= top_k:
+    for document in (
+        primary_ranked
+    ):
+        if (
+            len(
+                selected
+            )
+            >= top_k
+        ):
             break
 
         add_document(
@@ -245,8 +340,15 @@ def select_query_aware_evidence(
             enforce_publisher_diversity=True,
         )
 
-    for document in fallback_ranked:
-        if len(selected) >= top_k:
+    for document in (
+        fallback_ranked
+    ):
+        if (
+            len(
+                selected
+            )
+            >= top_k
+        ):
             break
 
         add_document(
@@ -254,12 +356,22 @@ def select_query_aware_evidence(
             enforce_publisher_diversity=True,
         )
 
-    if len(selected) < top_k:
+    if (
+        len(
+            selected
+        )
+        < top_k
+    ):
         for document in (
             primary_ranked
             + fallback_ranked
         ):
-            if len(selected) >= top_k:
+            if (
+                len(
+                    selected
+                )
+                >= top_k
+            ):
                 break
 
             add_document(

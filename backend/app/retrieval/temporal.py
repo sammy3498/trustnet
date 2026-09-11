@@ -66,6 +66,8 @@ CURRENT_STATE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+DEFAULT_SOFT_TEMPORAL_SCORE = 0.5
+
 
 def extract_explicit_years(
     text: str,
@@ -376,4 +378,138 @@ def is_text_explicitly_after_cutoff(
     return has_future_current_state_year(
         text,
         end_date,
+    )
+
+
+def get_soft_temporal_fit_score(
+    reference_text: str | None,
+    title: str,
+    text: str,
+    published_date: str | None,
+) -> float:
+    reference_years = sorted(
+        set(
+            extract_explicit_years(
+                reference_text or ""
+            )
+        )
+    )
+
+    if not reference_years:
+        return (
+            DEFAULT_SOFT_TEMPORAL_SCORE
+        )
+
+    minimum_reference = min(
+        reference_years
+    )
+
+    maximum_reference = max(
+        reference_years
+    )
+
+    evidence_sample = (
+        f"{title}\n{text[:5000]}"
+    )
+
+    evidence_years = sorted(
+        set(
+            extract_explicit_years(
+                evidence_sample
+            )
+        )
+    )
+
+    if set(
+        reference_years
+    ).intersection(
+        evidence_years
+    ):
+        return 1.0
+
+    evidence_score = None
+
+    if evidence_years:
+        nearest_distance = min(
+            abs(
+                evidence_year
+                - reference_year
+            )
+            for evidence_year
+            in evidence_years
+            for reference_year
+            in reference_years
+        )
+
+        if nearest_distance <= 1:
+            evidence_score = 0.85
+
+        elif nearest_distance == 2:
+            evidence_score = 0.65
+
+        elif nearest_distance == 3:
+            evidence_score = 0.45
+
+        else:
+            evidence_score = 0.20
+
+    publication_score = None
+
+    if published_date:
+        try:
+            publication_year = (
+                datetime.strptime(
+                    published_date,
+                    "%Y-%m-%d",
+                ).year
+            )
+
+            if publication_year in (
+                reference_years
+            ):
+                publication_score = 0.95
+
+            elif (
+                minimum_reference - 1
+                <= publication_year
+                <= maximum_reference + 1
+            ):
+                publication_score = 0.80
+
+            elif (
+                publication_year
+                <= maximum_reference + 3
+                and publication_year
+                >= minimum_reference - 3
+            ):
+                publication_score = 0.55
+
+            elif (
+                publication_year
+                > maximum_reference + 3
+            ):
+                publication_score = 0.10
+
+            else:
+                publication_score = 0.30
+
+        except ValueError:
+            publication_score = None
+
+    available_scores = [
+        score
+        for score in (
+            evidence_score,
+            publication_score,
+        )
+        if score is not None
+    ]
+
+    if not available_scores:
+        return (
+            DEFAULT_SOFT_TEMPORAL_SCORE
+        )
+
+    return max(
+        available_scores
     )

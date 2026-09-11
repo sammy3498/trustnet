@@ -16,7 +16,7 @@ from backend.app.llm.client import (
     get_llm_response,
 )
 from backend.app.models.evidence_analysis import (
-    EvidenceAnalysisResponse,
+    EvidenceAnalysisResponseV4,
 )
 from backend.app.retrieval.excerpt import (
     DEFAULT_PASSAGE_MAX_CHARS,
@@ -25,11 +25,11 @@ from backend.app.retrieval.excerpt import (
 
 
 PROMPT_PATH = Path(
-    "prompts/evidence_analysis_v3.txt"
+    "prompts/evidence_analysis_v4.txt"
 )
 
 EVIDENCE_ANALYSIS_SCHEMA = (
-    EvidenceAnalysisResponse
+    EvidenceAnalysisResponseV4
     .model_json_schema()
 )
 
@@ -38,6 +38,97 @@ def load_evidence_prompt() -> str:
     return PROMPT_PATH.read_text(
         encoding="utf-8"
     )
+
+
+def apply_v4_subclaim_consistency(
+    analysis: dict,
+) -> dict:
+    subclaims = analysis[
+        "subclaim_assessments"
+    ]
+
+    for subclaim in subclaims:
+        original_status = (
+            subclaim[
+                "status"
+            ]
+        )
+
+        subclaim[
+            "llm_status"
+        ] = original_status
+
+        coverage = (
+            subclaim[
+                "coverage"
+            ]
+        )
+
+        direct_support = bool(
+            subclaim[
+                "direct_support"
+            ]
+        )
+
+        direct_contradiction = bool(
+            subclaim[
+                "direct_contradiction"
+            ]
+        )
+
+        context_conflict = bool(
+            subclaim[
+                "material_context_conflict"
+            ]
+        )
+
+        if (
+            direct_support
+            and direct_contradiction
+        ):
+            resolved_status = (
+                "mixed"
+            )
+
+        elif (
+            direct_support
+            and context_conflict
+        ):
+            resolved_status = (
+                "mixed"
+            )
+
+        elif direct_contradiction:
+            resolved_status = (
+                "contradicts"
+            )
+
+        elif (
+            direct_support
+            and coverage
+            == "complete"
+        ):
+            resolved_status = (
+                "supports"
+            )
+
+        else:
+            resolved_status = (
+                "insufficient"
+            )
+
+        subclaim[
+            "status"
+        ] = resolved_status
+
+        subclaim[
+            "status_was_resolved"
+        ] = (
+            resolved_status
+            != original_status
+        )
+
+    return analysis
 
 
 def apply_direction_consistency(
@@ -171,7 +262,7 @@ Evidence:
                 EVIDENCE_ANALYSIS_SCHEMA
             ),
             response_schema_name=(
-                "trustnet_evidence_analysis"
+                "trustnet_evidence_analysis_v4"
             ),
         )
     )
@@ -189,7 +280,7 @@ Evidence:
 
     try:
         validated = (
-            EvidenceAnalysisResponse
+            EvidenceAnalysisResponseV4
             .model_validate(
                 data
             )
@@ -204,6 +295,12 @@ Evidence:
 
     analysis = (
         validated.model_dump()
+    )
+
+    analysis = (
+        apply_v4_subclaim_consistency(
+            analysis
+        )
     )
 
     return (

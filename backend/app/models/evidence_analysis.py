@@ -18,6 +18,26 @@ EvidenceDirection = Literal[
     "insufficient",
 ]
 
+EvidenceDirectness = Literal[
+    "direct",
+    "partial",
+    "indirect",
+    "none",
+]
+
+EvidenceCoverage = Literal[
+    "complete",
+    "partial",
+    "none",
+]
+
+QualifierRelation = Literal[
+    "matches",
+    "conflicts",
+    "unresolved",
+    "not_applicable",
+]
+
 
 class EvidenceAssessment(
     BaseModel
@@ -80,6 +100,101 @@ class EvidenceAnalysisResponse(
 
     subclaim_assessments: list[
         SubclaimAssessment
+    ] = Field(
+        min_length=1
+    )
+
+    overall_evidence_direction: (
+        EvidenceDirection
+    )
+
+    evidence_strength_score: int = (
+        Field(
+            ge=0,
+            le=100,
+        )
+    )
+
+    summary: str
+
+
+class EvidenceAssessmentV4(
+    BaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid"
+    )
+
+    title: str
+    url: str
+
+    stance: Literal[
+        "supports",
+        "contradicts",
+        "mixed",
+        "neutral",
+    ]
+
+    quality: Literal[
+        "high",
+        "medium",
+        "low",
+    ]
+
+    relevance: Literal[
+        "high",
+        "medium",
+        "low",
+    ]
+
+    directness: (
+        EvidenceDirectness
+    )
+
+    qualifier_relation: (
+        QualifierRelation
+    )
+
+    reasoning: str
+
+
+class SubclaimAssessmentV4(
+    BaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid"
+    )
+
+    subclaim: str
+
+    coverage: EvidenceCoverage
+
+    direct_support: bool
+
+    direct_contradiction: bool
+
+    material_context_conflict: bool
+
+    status: EvidenceDirection
+
+    reasoning: str
+
+
+class EvidenceAnalysisResponseV4(
+    BaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid"
+    )
+
+    claim: str
+
+    evidence_assessments: list[
+        EvidenceAssessmentV4
+    ]
+
+    subclaim_assessments: list[
+        SubclaimAssessmentV4
     ] = Field(
         min_length=1
     )

@@ -41,7 +41,9 @@ logger = logging.getLogger(
 def build_search_queries(
     query: str,
     alternate_query: str | None = None,
-    verification_queries: list[str] | None = None,
+    verification_queries: (
+        list[str] | None
+    ) = None,
     max_queries: int = 4,
 ) -> list[str]:
     queries = []
@@ -53,7 +55,8 @@ def build_search_queries(
         )
 
     candidates.extend(
-        verification_queries or []
+        verification_queries
+        or []
     )
 
     candidates.append(
@@ -70,7 +73,8 @@ def build_search_queries(
 
         if (
             candidate
-            and candidate not in queries
+            and candidate
+            not in queries
         ):
             queries.append(
                 candidate
@@ -95,14 +99,19 @@ def is_excluded_search_result(
         f"{url} {title}"
     ).lower()
 
-    for pattern in excluded_patterns:
+    for pattern in (
+        excluded_patterns
+    ):
         normalized = (
-            pattern.strip().lower()
+            pattern
+            .strip()
+            .lower()
         )
 
         if (
             normalized
-            and normalized in combined
+            and normalized
+            in combined
         ):
             return True
 
@@ -149,27 +158,43 @@ def search_and_retrieve(
     search_results: int = 10,
     top_k: int = 5,
     alternate_query: str | None = None,
-    verification_queries: list[str] | None = None,
+    verification_queries: (
+        list[str] | None
+    ) = None,
     end_date: str | None = None,
     excluded_result_patterns: (
         list[str] | None
     ) = None,
-) -> list[RetrievedEvidence]:
+) -> list[
+    RetrievedEvidence
+]:
     queries = build_search_queries(
         query=query,
-        alternate_query=alternate_query,
-        verification_queries=verification_queries,
+        alternate_query=(
+            alternate_query
+        ),
+        verification_queries=(
+            verification_queries
+        ),
     )
 
     if not queries:
         return []
+
+    temporal_reference_text = (
+        "\n".join(
+            queries
+        )
+    )
 
     search_result_groups = []
 
     with ThreadPoolExecutor(
         max_workers=min(
             4,
-            len(queries),
+            len(
+                queries
+            ),
         )
     ) as executor:
         futures = {
@@ -179,15 +204,20 @@ def search_and_retrieve(
                 search_results,
                 end_date,
             ): search_query
-            for search_query in queries
+            for search_query
+            in queries
         }
 
-        for future in as_completed(
-            futures
+        for future in (
+            as_completed(
+                futures
+            )
         ):
-            search_query = futures[
-                future
-            ]
+            search_query = (
+                futures[
+                    future
+                ]
+            )
 
             try:
                 results = (
@@ -236,6 +266,7 @@ def search_and_retrieve(
                     "search result: %s",
                     result.url,
                 )
+
                 continue
 
             if is_explicitly_after_cutoff(
@@ -248,6 +279,7 @@ def search_and_retrieve(
                     "future-dated result: %s",
                     result.url,
                 )
+
                 continue
 
             query_ranks = (
@@ -265,7 +297,8 @@ def search_and_retrieve(
 
             if (
                 previous_rank is None
-                or rank < previous_rank
+                or rank
+                < previous_rank
             ):
                 query_ranks[
                     search_query
@@ -299,15 +332,20 @@ def search_and_retrieve(
                 result.url,
                 result.title,
             ): result
-            for result in search_items
+            for result
+            in search_items
         }
 
-        for future in as_completed(
-            futures
+        for future in (
+            as_completed(
+                futures
+            )
         ):
-            result = futures[
-                future
-            ]
+            result = (
+                futures[
+                    future
+                ]
+            )
 
             try:
                 evidence = (
@@ -323,7 +361,8 @@ def search_and_retrieve(
                 )
 
                 if not (
-                    result.snippet.strip()
+                    result.snippet
+                    .strip()
                 ):
                     continue
 
@@ -351,12 +390,15 @@ def search_and_retrieve(
                     evidence.url,
                     evidence.published_date,
                 )
+
                 continue
 
             if (
                 evidence.evidence_origin
                 == "webpage"
-                and not evidence.published_date
+                and not (
+                    evidence.published_date
+                )
                 and is_text_explicitly_after_cutoff(
                     text=evidence.text,
                     end_date=end_date,
@@ -368,6 +410,7 @@ def search_and_retrieve(
                     "or update date: %s",
                     evidence.url,
                 )
+
                 continue
 
             candidates.append(
@@ -383,6 +426,9 @@ def search_and_retrieve(
             documents=candidates,
             top_k=len(
                 candidates
+            ),
+            temporal_reference_text=(
+                temporal_reference_text
             ),
         )
     )
@@ -424,18 +470,23 @@ def search_and_retrieve(
         )
     )
 
-    return select_query_aware_evidence(
-        primary_ranked=(
-            fused_ranked
-        ),
-        fallback_ranked=(
-            hybrid_ranked
-        ),
-        verification_queries=(
-            verification_queries
-        ),
-        url_query_ranks=(
-            url_query_ranks
-        ),
-        top_k=top_k,
+    return (
+        select_query_aware_evidence(
+            primary_ranked=(
+                fused_ranked
+            ),
+            fallback_ranked=(
+                hybrid_ranked
+            ),
+            verification_queries=(
+                verification_queries
+            ),
+            url_query_ranks=(
+                url_query_ranks
+            ),
+            top_k=top_k,
+            temporal_reference_text=(
+                temporal_reference_text
+            ),
+        )
     )
