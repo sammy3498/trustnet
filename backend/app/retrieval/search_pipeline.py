@@ -1,4 +1,5 @@
 import logging
+import time
 from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
@@ -10,6 +11,10 @@ from backend.app.evidence.models import (
 from backend.app.retrieval.evidence_builder import (
     build_evidence_from_snippet,
     build_evidence_from_url,
+)
+from backend.app.retrieval.excerpt import (
+    DEFAULT_PASSAGE_MAX_CHARS,
+    get_relevant_excerpt,
 )
 from backend.app.retrieval.fusion import (
     fuse_rankings,
@@ -168,6 +173,10 @@ def search_and_retrieve(
 ) -> list[
     RetrievedEvidence
 ]:
+    retrieval_start = (
+        time.perf_counter()
+    )
+
     queries = build_search_queries(
         query=query,
         alternate_query=(
@@ -188,6 +197,10 @@ def search_and_retrieve(
     )
 
     search_result_groups = []
+
+    search_start = (
+        time.perf_counter()
+    )
 
     with ThreadPoolExecutor(
         max_workers=min(
@@ -238,6 +251,10 @@ def search_and_retrieve(
                     search_query,
                     exc,
                 )
+
+    search_end = (
+        time.perf_counter()
+    )
 
     seen_urls = set()
     search_items = []
@@ -322,6 +339,10 @@ def search_and_retrieve(
         return []
 
     candidates = []
+
+    fetch_start = (
+        time.perf_counter()
+    )
 
     with ThreadPoolExecutor(
         max_workers=5
@@ -417,8 +438,37 @@ def search_and_retrieve(
                 evidence
             )
 
+    fetch_end = (
+        time.perf_counter()
+    )
+
     if not candidates:
         return []
+
+    passage_start = (
+        time.perf_counter()
+    )
+
+    passages_by_url = {
+        document.url: (
+            get_relevant_excerpt(
+                text=document.text,
+                query=query,
+                max_chars=(
+                    DEFAULT_PASSAGE_MAX_CHARS
+                ),
+            )
+        )
+        for document in candidates
+    }
+
+    passage_end = (
+        time.perf_counter()
+    )
+
+    hybrid_start = (
+        time.perf_counter()
+    )
 
     hybrid_ranked = (
         retrieve_hybrid(
@@ -430,7 +480,14 @@ def search_and_retrieve(
             temporal_reference_text=(
                 temporal_reference_text
             ),
+            passages_by_url=(
+                passages_by_url
+            ),
         )
+    )
+
+    hybrid_end = (
+        time.perf_counter()
     )
 
     rerank_count = min(
@@ -449,6 +506,10 @@ def search_and_retrieve(
         ]
     )
 
+    rerank_start = (
+        time.perf_counter()
+    )
+
     reranked = (
         rerank_documents(
             query=query,
@@ -458,7 +519,18 @@ def search_and_retrieve(
             top_k=len(
                 rerank_candidates
             ),
+            passages_by_url=(
+                passages_by_url
+            ),
         )
+    )
+
+    rerank_end = (
+        time.perf_counter()
+    )
+
+    fusion_start = (
+        time.perf_counter()
     )
 
     fused_ranked = (
@@ -470,7 +542,15 @@ def search_and_retrieve(
         )
     )
 
-    return (
+    fusion_end = (
+        time.perf_counter()
+    )
+
+    selection_start = (
+        time.perf_counter()
+    )
+
+    selected = (
         select_query_aware_evidence(
             primary_ranked=(
                 fused_ranked
@@ -490,3 +570,95 @@ def search_and_retrieve(
             ),
         )
     )
+
+    selection_end = (
+        time.perf_counter()
+    )
+
+    logger.warning(
+        (
+            "TrustNet retrieval timing | "
+            "search=%sms | "
+            "fetch=%sms | "
+            "passages=%sms | "
+            "hybrid=%sms | "
+            "rerank=%sms | "
+            "fusion=%sms | "
+            "selection=%sms | "
+            "total=%sms | "
+            "queries=%s | "
+            "urls=%s | "
+            "candidates=%s | "
+            "selected=%s"
+        ),
+        round(
+            (
+                search_end
+                - search_start
+            )
+            * 1000
+        ),
+        round(
+            (
+                fetch_end
+                - fetch_start
+            )
+            * 1000
+        ),
+        round(
+            (
+                passage_end
+                - passage_start
+            )
+            * 1000
+        ),
+        round(
+            (
+                hybrid_end
+                - hybrid_start
+            )
+            * 1000
+        ),
+        round(
+            (
+                rerank_end
+                - rerank_start
+            )
+            * 1000
+        ),
+        round(
+            (
+                fusion_end
+                - fusion_start
+            )
+            * 1000
+        ),
+        round(
+            (
+                selection_end
+                - selection_start
+            )
+            * 1000
+        ),
+        round(
+            (
+                selection_end
+                - retrieval_start
+            )
+            * 1000
+        ),
+        len(
+            queries
+        ),
+        len(
+            search_items
+        ),
+        len(
+            candidates
+        ),
+        len(
+            selected
+        ),
+    )
+
+    return selected

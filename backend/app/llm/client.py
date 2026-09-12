@@ -16,7 +16,8 @@ if not api_key:
     )
 
 client = OpenAI(
-    api_key=api_key
+    api_key=api_key,
+    max_retries=0,
 )
 
 

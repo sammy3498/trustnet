@@ -34,12 +34,41 @@ def quality_bonus(
     ]
 
 
+def get_document_passage(
+    document: RetrievedEvidence,
+    query: str,
+    passages_by_url: (
+        dict[str, str] | None
+    ) = None,
+) -> str:
+    if passages_by_url is not None:
+        cached_passage = (
+            passages_by_url.get(
+                document.url
+            )
+        )
+
+        if cached_passage is not None:
+            return cached_passage
+
+    return get_relevant_excerpt(
+        text=document.text,
+        query=query,
+        max_chars=(
+            DEFAULT_PASSAGE_MAX_CHARS
+        ),
+    )
+
+
 def retrieve_bm25(
     query: str,
     documents: list[
         RetrievedEvidence
     ],
     top_k: int = 5,
+    passages_by_url: (
+        dict[str, str] | None
+    ) = None,
 ) -> list[
     RetrievedEvidence
 ]:
@@ -47,23 +76,21 @@ def retrieve_bm25(
         return []
 
     passage_texts = [
-        get_relevant_excerpt(
-            text=document.text,
+        get_document_passage(
+            document=document,
             query=query,
-            max_chars=(
-                DEFAULT_PASSAGE_MAX_CHARS
+            passages_by_url=(
+                passages_by_url
             ),
         )
-        for document
-        in documents
+        for document in documents
     ]
 
     tokenized_documents = [
         tokenize(
             passage
         )
-        for passage
-        in passage_texts
+        for passage in passage_texts
     ]
 
     bm25 = BM25Okapi(

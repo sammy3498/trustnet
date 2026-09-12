@@ -1,3 +1,4 @@
+import atexit
 import json
 import re
 from datetime import datetime
@@ -69,6 +70,29 @@ MONTH_PATTERN = (
 
 MAX_PDF_PAGES = 80
 MAX_PDF_CHARS = 250000
+
+HTTP_TIMEOUT_SECONDS = 15.0
+
+_http_client = httpx.Client(
+    timeout=HTTP_TIMEOUT_SECONDS,
+    follow_redirects=True,
+    headers={
+        "User-Agent": "TrustNet/0.1"
+    },
+    limits=httpx.Limits(
+        max_connections=20,
+        max_keepalive_connections=10,
+    ),
+)
+
+
+def close_http_client() -> None:
+    _http_client.close()
+
+
+atexit.register(
+    close_http_client
+)
 
 
 class FetchedPageText(str):
@@ -617,20 +641,11 @@ def extract_pdf_text(
 def fetch_webpage(
     url: str,
 ) -> str:
-    headers = {
-        "User-Agent": "TrustNet/0.1"
-    }
+    response = _http_client.get(
+        url
+    )
 
-    with httpx.Client(
-        timeout=15.0,
-        follow_redirects=True,
-        headers=headers,
-    ) as client:
-        response = client.get(
-            url
-        )
-
-        response.raise_for_status()
+    response.raise_for_status()
 
     content_type = (
         response.headers.get(

@@ -72,6 +72,9 @@ def retrieve_hybrid(
     temporal_reference_text: (
         str | None
     ) = None,
+    passages_by_url: (
+        dict[str, str] | None
+    ) = None,
 ) -> list[
     RetrievedEvidence
 ]:
@@ -84,6 +87,9 @@ def retrieve_hybrid(
         top_k=len(
             documents
         ),
+        passages_by_url=(
+            passages_by_url
+        ),
     )
 
     retrieve_dense(
@@ -91,6 +97,9 @@ def retrieve_hybrid(
         documents=documents,
         top_k=len(
             documents
+        ),
+        passages_by_url=(
+            passages_by_url
         ),
     )
 
