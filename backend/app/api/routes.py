@@ -147,6 +147,10 @@ def analyze(
         )
 
     except Exception as exc:
+        logger.exception(
+            "TrustNet credibility analysis failed."
+        )
+
         raise HTTPException(
             status_code=502,
             detail=(
