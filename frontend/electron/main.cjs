@@ -141,6 +141,130 @@ function waitForUrl(
 }
 
 
+function waitForUrlUnavailable(
+  url,
+  timeoutMs = 15000,
+) {
+  const start = Date.now()
+
+  return new Promise(
+    (resolve, reject) => {
+      function check() {
+        const request = http.get(
+          url,
+          (response) => {
+            response.resume()
+            retry()
+          },
+        )
+
+        request.setTimeout(
+          750,
+          () => {
+            request.destroy()
+            resolve()
+          },
+        )
+
+        request.on(
+          'error',
+          () => {
+            resolve()
+          },
+        )
+      }
+
+      function retry() {
+        if (
+          Date.now() - start
+          >= timeoutMs
+        ) {
+          reject(
+            new Error(
+              `Timed out waiting for ${url} to stop responding.`,
+            ),
+          )
+
+          return
+        }
+
+        setTimeout(
+          check,
+          250,
+        )
+      }
+
+      check()
+    },
+  )
+}
+
+
+function waitForProcessExit(
+  childProcess,
+  timeoutMs = 15000,
+) {
+  if (
+    !childProcess
+    || !childProcess.pid
+  ) {
+    return Promise.resolve()
+  }
+
+  if (
+    childProcess.exitCode !== null
+    || childProcess.signalCode !== null
+  ) {
+    return Promise.resolve()
+  }
+
+  return new Promise(
+    (resolve, reject) => {
+      let settled = false
+
+      const timeoutId =
+        setTimeout(
+          () => {
+            if (
+              settled
+            ) {
+              return
+            }
+
+            settled = true
+
+            reject(
+              new Error(
+                'Timed out waiting for the previous TrustNet backend to exit.',
+              ),
+            )
+          },
+          timeoutMs,
+        )
+
+      childProcess.once(
+        'exit',
+        () => {
+          if (
+            settled
+          ) {
+            return
+          }
+
+          settled = true
+
+          clearTimeout(
+            timeoutId,
+          )
+
+          resolve()
+        },
+      )
+    },
+  )
+}
+
+
 function hasSecureConfig() {
   return fs.existsSync(
     getSecureConfigPath(),
@@ -155,14 +279,39 @@ function hasLegacyConfig() {
 }
 
 
-function readSecureConfig() {
-  const rawConfig = JSON.parse(
+function readSecureConfigRecord() {
+  return JSON.parse(
     fs.readFileSync(
       getSecureConfigPath(),
       'utf8',
     ),
   )
+}
 
+
+function decryptSecureValue(
+  encodedValue,
+  fieldName,
+) {
+  if (
+    typeof encodedValue !== 'string'
+    || !encodedValue
+  ) {
+    throw new Error(
+      `Stored ${fieldName} is missing.`,
+    )
+  }
+
+  return safeStorage.decryptString(
+    Buffer.from(
+      encodedValue,
+      'base64',
+    ),
+  )
+}
+
+
+function readSecureConfig() {
   if (
     !safeStorage.isEncryptionAvailable()
   ) {
@@ -171,25 +320,142 @@ function readSecureConfig() {
     )
   }
 
+  const rawConfig =
+    readSecureConfigRecord()
+
   return {
     llmApiKey:
-      safeStorage.decryptString(
-        Buffer.from(
-          rawConfig.llmApiKey,
-          'base64',
-        ),
+      decryptSecureValue(
+        rawConfig.llmApiKey,
+        'OpenAI API key',
       ),
 
     tavilyApiKey:
-      safeStorage.decryptString(
-        Buffer.from(
-          rawConfig.tavilyApiKey,
-          'base64',
-        ),
+      decryptSecureValue(
+        rawConfig.tavilyApiKey,
+        'Tavily API key',
       ),
 
     llmModel:
-      rawConfig.llmModel,
+      String(
+        rawConfig.llmModel ?? '',
+      ).trim(),
+  }
+}
+
+
+function readSecureConfigMetadata() {
+  const rawConfig =
+    readSecureConfigRecord()
+
+  const llmModel = String(
+    rawConfig.llmModel ?? '',
+  ).trim()
+
+  return {
+    llmModel,
+
+    hasLlmApiKey:
+      typeof rawConfig.llmApiKey
+        === 'string'
+      && rawConfig.llmApiKey.length > 0,
+
+    hasTavilyApiKey:
+      typeof rawConfig.tavilyApiKey
+        === 'string'
+      && rawConfig.tavilyApiKey.length > 0,
+  }
+}
+
+
+function parseLegacyEnv() {
+  const contents = fs.readFileSync(
+    getLegacyEnvPath(),
+    'utf8',
+  )
+
+  const values = {}
+
+  for (
+    const rawLine
+    of contents.split(/\r?\n/)
+  ) {
+    const line = rawLine.trim()
+
+    if (
+      !line
+      || line.startsWith('#')
+    ) {
+      continue
+    }
+
+    const equalsIndex =
+      line.indexOf('=')
+
+    if (
+      equalsIndex <= 0
+    ) {
+      continue
+    }
+
+    const key = line
+      .slice(
+        0,
+        equalsIndex,
+      )
+      .trim()
+
+    let value = line
+      .slice(
+        equalsIndex + 1,
+      )
+      .trim()
+
+    if (
+      value.length >= 2
+      && (
+        (
+          value.startsWith('"')
+          && value.endsWith('"')
+        )
+        || (
+          value.startsWith("'")
+          && value.endsWith("'")
+        )
+      )
+    ) {
+      value = value.slice(
+        1,
+        -1,
+      )
+    }
+
+    values[key] = value
+  }
+
+  return values
+}
+
+
+function readLegacyConfig() {
+  const values =
+    parseLegacyEnv()
+
+  return {
+    llmApiKey:
+      String(
+        values.LLM_API_KEY ?? '',
+      ).trim(),
+
+    tavilyApiKey:
+      String(
+        values.TAVILY_API_KEY ?? '',
+      ).trim(),
+
+    llmModel:
+      String(
+        values.LLM_MODEL ?? '',
+      ).trim(),
   }
 }
 
@@ -234,25 +500,14 @@ function writeSecureConfig(
       config.llmModel,
   }
 
-  const configPath =
-    getSecureConfigPath()
-
-  const temporaryPath =
-    `${configPath}.tmp`
-
   fs.writeFileSync(
-    temporaryPath,
+    getSecureConfigPath(),
     JSON.stringify(
       secureConfig,
       null,
       2,
     ),
     'utf8',
-  )
-
-  fs.renameSync(
-    temporaryPath,
-    configPath,
   )
 }
 
@@ -264,31 +519,204 @@ function getConfigStatus() {
     return {
       configured: true,
       source: 'development',
+      editable: false,
+      llmModel: null,
+      hasLlmApiKey: false,
+      hasTavilyApiKey: false,
     }
   }
 
   if (
     hasSecureConfig()
   ) {
-    return {
-      configured: true,
-      source: 'secure',
+    try {
+      const metadata =
+        readSecureConfigMetadata()
+
+      return {
+        configured:
+          metadata.hasLlmApiKey
+          && metadata.hasTavilyApiKey
+          && Boolean(
+            metadata.llmModel,
+          ),
+
+        source: 'secure',
+        editable: true,
+        llmModel:
+          metadata.llmModel,
+
+        hasLlmApiKey:
+          metadata.hasLlmApiKey,
+
+        hasTavilyApiKey:
+          metadata.hasTavilyApiKey,
+      }
+    } catch {
+      return {
+        configured: false,
+        source: 'secure-error',
+        editable: true,
+        llmModel: '',
+        hasLlmApiKey: false,
+        hasTavilyApiKey: false,
+      }
     }
   }
 
   if (
     hasLegacyConfig()
   ) {
-    return {
-      configured: true,
-      source: 'legacy',
+    try {
+      const legacyConfig =
+        readLegacyConfig()
+
+      return {
+        configured:
+          Boolean(
+            legacyConfig.llmApiKey,
+          )
+          && Boolean(
+            legacyConfig.tavilyApiKey,
+          )
+          && Boolean(
+            legacyConfig.llmModel,
+          ),
+
+        source: 'legacy',
+        editable: true,
+        llmModel:
+          legacyConfig.llmModel,
+
+        hasLlmApiKey:
+          Boolean(
+            legacyConfig.llmApiKey,
+          ),
+
+        hasTavilyApiKey:
+          Boolean(
+            legacyConfig.tavilyApiKey,
+          ),
+      }
+    } catch {
+      return {
+        configured: false,
+        source: 'legacy-error',
+        editable: true,
+        llmModel: '',
+        hasLlmApiKey: false,
+        hasTavilyApiKey: false,
+      }
     }
   }
 
   return {
     configured: false,
     source: null,
+    editable: true,
+    llmModel: '',
+    hasLlmApiKey: false,
+    hasTavilyApiKey: false,
   }
+}
+
+
+function getExistingConfig() {
+  if (
+    hasSecureConfig()
+  ) {
+    try {
+      return readSecureConfig()
+    } catch {
+      return {
+        llmApiKey: '',
+        tavilyApiKey: '',
+        llmModel: '',
+      }
+    }
+  }
+
+  if (
+    hasLegacyConfig()
+  ) {
+    try {
+      return readLegacyConfig()
+    } catch {
+      return {
+        llmApiKey: '',
+        tavilyApiKey: '',
+        llmModel: '',
+      }
+    }
+  }
+
+  return {
+    llmApiKey: '',
+    tavilyApiKey: '',
+    llmModel: '',
+  }
+}
+
+
+function resolveConfigUpdate(
+  config,
+) {
+  const existing =
+    getExistingConfig()
+
+  const requestedLlmApiKey =
+    String(
+      config?.llmApiKey ?? '',
+    ).trim()
+
+  const requestedTavilyApiKey =
+    String(
+      config?.tavilyApiKey ?? '',
+    ).trim()
+
+  const requestedLlmModel =
+    String(
+      config?.llmModel ?? '',
+    ).trim()
+
+  const resolvedConfig = {
+    llmApiKey:
+      requestedLlmApiKey
+      || existing.llmApiKey,
+
+    tavilyApiKey:
+      requestedTavilyApiKey
+      || existing.tavilyApiKey,
+
+    llmModel:
+      requestedLlmModel
+      || existing.llmModel,
+  }
+
+  if (
+    !resolvedConfig.llmApiKey
+    || !resolvedConfig.tavilyApiKey
+    || !resolvedConfig.llmModel
+  ) {
+    throw new Error(
+      'OpenAI API key, Tavily API key, and model are required.',
+    )
+  }
+
+  if (
+    resolvedConfig.llmApiKey.length
+      > 4096
+    || resolvedConfig.tavilyApiKey.length
+      > 4096
+    || resolvedConfig.llmModel.length
+      > 200
+  ) {
+    throw new Error(
+      'One or more configuration values are too long.',
+    )
+  }
+
+  return resolvedConfig
 }
 
 
@@ -499,7 +927,7 @@ function startPackagedBackend() {
     'a',
   )
 
-  backendProcess = spawn(
+  const spawnedBackend = spawn(
     backendPath,
     [],
     {
@@ -516,12 +944,15 @@ function startPackagedBackend() {
     },
   )
 
+  backendProcess =
+    spawnedBackend
+
   fs.appendFileSync(
     logFilePath,
-    `Spawned backend PID: ${backendProcess.pid ?? 'unknown'}\n`,
+    `Spawned backend PID: ${spawnedBackend.pid ?? 'unknown'}\n`,
   )
 
-  backendProcess.on(
+  spawnedBackend.on(
     'error',
     (error) => {
       fs.appendFileSync(
@@ -531,7 +962,7 @@ function startPackagedBackend() {
     },
   )
 
-  backendProcess.on(
+  spawnedBackend.on(
     'exit',
     (code, signal) => {
       fs.appendFileSync(
@@ -539,7 +970,12 @@ function startPackagedBackend() {
         `Backend exited. Code: ${code}, signal: ${signal}\n`,
       )
 
-      backendProcess = null
+      if (
+        backendProcess
+        === spawnedBackend
+      ) {
+        backendProcess = null
+      }
     },
   )
 }
@@ -633,18 +1069,62 @@ function stopProcess(
 }
 
 
-async function restartPackagedBackend() {
-  if (
+async function stopPackagedBackend() {
+  const previousBackend =
     backendProcess
+
+  if (
+    !previousBackend
   ) {
-    stopProcess(
-      backendProcess,
+    await waitForUrlUnavailable(
+      BACKEND_HEALTH_URL,
+      5000,
+    ).catch(
+      () => {},
     )
 
-    backendProcess = null
+    return
+  }
+
+  backendProcess = null
+
+  const exitPromise =
+    waitForProcessExit(
+      previousBackend,
+      15000,
+    )
+
+  stopProcess(
+    previousBackend,
+  )
+
+  try {
+    await exitPromise
+  } catch {
+    // taskkill is forceful on Windows, so continue
+    // to the endpoint-release check below.
   }
 
   closeBackendLog()
+
+  await waitForUrlUnavailable(
+    BACKEND_HEALTH_URL,
+    15000,
+  )
+}
+
+
+async function restartPackagedBackend() {
+  await stopPackagedBackend()
+
+  await new Promise(
+    (resolve) => {
+      setTimeout(
+        resolve,
+        500,
+      )
+    },
+  )
 
   startPackagedBackend()
 
@@ -679,41 +1159,22 @@ function registerIpcHandlers() {
         }
       }
 
-      const llmApiKey = String(
-        config?.llmApiKey ?? '',
-      ).trim()
-
-      const tavilyApiKey = String(
-        config?.tavilyApiKey ?? '',
-      ).trim()
-
-      const llmModel = String(
-        config?.llmModel ?? '',
-      ).trim()
-
-      if (
-        !llmApiKey
-        || !tavilyApiKey
-        || !llmModel
-      ) {
-        return {
-          ok: false,
-          error:
-            'OpenAI API key, Tavily API key, and model are required.',
-        }
-      }
-
       try {
-        writeSecureConfig({
-          llmApiKey,
-          tavilyApiKey,
-          llmModel,
-        })
+        const resolvedConfig =
+          resolveConfigUpdate(
+            config,
+          )
+
+        writeSecureConfig(
+          resolvedConfig,
+        )
 
         await restartPackagedBackend()
 
         return {
           ok: true,
+          status:
+            getConfigStatus(),
         }
       } catch (error) {
         return {

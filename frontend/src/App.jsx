@@ -1,103 +1,257 @@
-import { useEffect, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from 'react'
+
 import './App.css'
 
-const API_BASE = 'http://127.0.0.1:8000'
+const API_BASE =
+  'http://127.0.0.1:8000'
 
 const factorNames = {
-  evidence_strength: 'Evidence Strength',
-  factual_consistency: 'Factual Consistency',
-  source_provenance: 'Source Provenance',
-  bias_framing: 'Bias & Framing',
-  incentive_conflict: 'Incentive / Conflict',
+  evidence_strength:
+    'Evidence Strength',
+  factual_consistency:
+    'Factual Consistency',
+  source_provenance:
+    'Source Provenance',
+  bias_framing:
+    'Bias & Framing',
+  incentive_conflict:
+    'Incentive / Conflict',
 }
 
 function App() {
-  const [claim, setClaim] = useState('')
-  const [result, setResult] = useState(null)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [backendOnline, setBackendOnline] = useState(null)
+  const [claim, setClaim] =
+    useState('')
 
-  const [configChecked, setConfigChecked] = useState(false)
-  const [configured, setConfigured] = useState(true)
-  const [configSource, setConfigSource] = useState(null)
-  const [savingConfig, setSavingConfig] = useState(false)
-  const [configError, setConfigError] = useState('')
+  const [result, setResult] =
+    useState(null)
 
-  const [llmApiKey, setLlmApiKey] = useState('')
-  const [tavilyApiKey, setTavilyApiKey] = useState('')
-  const [llmModel, setLlmModel] = useState('')
+  const [error, setError] =
+    useState('')
 
-  async function checkBackend() {
-    try {
-      const response = await fetch(
-        `${API_BASE}/health`
-      )
+  const [loading, setLoading] =
+    useState(false)
 
-      const data = await response.json()
+  const [
+    backendOnline,
+    setBackendOnline,
+  ] = useState(null)
 
-      const online =
-        response.ok
-        && data.status === 'ok'
+  const [
+    configChecked,
+    setConfigChecked,
+  ] = useState(false)
 
-      setBackendOnline(
-        online
-      )
+  const [
+    configStatus,
+    setConfigStatus,
+  ] = useState(null)
 
-      return online
-    } catch {
-      setBackendOnline(false)
-      return false
-    }
-  }
+  const [
+    configured,
+    setConfigured,
+  ] = useState(true)
 
-  useEffect(() => {
-    async function initializeApp() {
-      if (
-        window.trustnetDesktop
-        && window.trustnetDesktop.getConfigStatus
-      ) {
+  const [
+    savingConfig,
+    setSavingConfig,
+  ] = useState(false)
+
+  const [
+    configError,
+    setConfigError,
+  ] = useState('')
+
+  const [
+    llmApiKey,
+    setLlmApiKey,
+  ] = useState('')
+
+  const [
+    tavilyApiKey,
+    setTavilyApiKey,
+  ] = useState('')
+
+  const [
+    llmModel,
+    setLlmModel,
+  ] = useState('')
+
+  const [
+    settingsOpen,
+    setSettingsOpen,
+  ] = useState(false)
+
+  const [
+    settingsLlmApiKey,
+    setSettingsLlmApiKey,
+  ] = useState('')
+
+  const [
+    settingsTavilyApiKey,
+    setSettingsTavilyApiKey,
+  ] = useState('')
+
+  const [
+    settingsLlmModel,
+    setSettingsLlmModel,
+  ] = useState('')
+
+  const [
+    settingsSaving,
+    setSettingsSaving,
+  ] = useState(false)
+
+  const [
+    settingsError,
+    setSettingsError,
+  ] = useState('')
+
+  const checkBackend =
+    useCallback(
+      async () => {
         try {
-          const status =
-            await window.trustnetDesktop
-              .getConfigStatus()
+          const response =
+            await fetch(
+              `${API_BASE}/health`,
+            )
 
-          setConfigured(
-            status.configured
+          const data =
+            await response.json()
+
+          const online =
+            response.ok
+            && data.status === 'ok'
+
+          setBackendOnline(
+            online,
           )
 
-          setConfigSource(
-            status.source
-          )
-
-          setConfigChecked(true)
-
-          if (
-            status.configured
-          ) {
-            await checkBackend()
-          } else {
-            setBackendOnline(false)
-          }
-
-          return
+          return online
         } catch {
-          setConfigured(true)
-          setConfigChecked(true)
-          await checkBackend()
-          return
+          setBackendOnline(false)
+          return false
         }
+      },
+      [],
+    )
+
+  useEffect(
+    () => {
+      let cancelled = false
+
+      async function initializeApp() {
+        if (
+          window.trustnetDesktop
+          && window
+            .trustnetDesktop
+            .getConfigStatus
+        ) {
+          try {
+            const status =
+              await window
+                .trustnetDesktop
+                .getConfigStatus()
+
+            if (cancelled) {
+              return
+            }
+
+            setConfigStatus(
+              status,
+            )
+
+            setConfigured(
+              status.configured,
+            )
+
+            if (
+              status.llmModel
+            ) {
+              setLlmModel(
+                status.llmModel,
+              )
+            }
+
+            setConfigChecked(true)
+
+            if (
+              status.configured
+            ) {
+              await checkBackend()
+            } else {
+              setBackendOnline(
+                false,
+              )
+            }
+
+            return
+          } catch {
+            if (cancelled) {
+              return
+            }
+
+            setConfigured(true)
+            setConfigChecked(true)
+
+            await checkBackend()
+            return
+          }
+        }
+
+        setConfigured(true)
+        setConfigChecked(true)
+
+        await checkBackend()
       }
 
-      setConfigured(true)
-      setConfigChecked(true)
-      await checkBackend()
-    }
+      initializeApp()
 
-    initializeApp()
-  }, [])
+      return () => {
+        cancelled = true
+      }
+    },
+    [
+      checkBackend,
+    ],
+  )
 
-  async function handleSaveConfig(event) {
+  useEffect(
+    () => {
+      if (
+        !configChecked
+        || !configured
+      ) {
+        return undefined
+      }
+
+      const intervalId =
+        window.setInterval(
+          () => {
+            checkBackend()
+          },
+          2000,
+        )
+
+      return () => {
+        window.clearInterval(
+          intervalId,
+        )
+      }
+    },
+    [
+      checkBackend,
+      configChecked,
+      configured,
+    ],
+  )
+
+  async function handleSaveConfig(
+    event,
+  ) {
     event.preventDefault()
 
     const openAiKey =
@@ -115,17 +269,19 @@ function App() {
       || !model
     ) {
       setConfigError(
-        'OpenAI API key, Tavily API key, and model are required.'
+        'OpenAI API key, Tavily API key, and model are required.',
       )
       return
     }
 
     if (
       !window.trustnetDesktop
-      || !window.trustnetDesktop.saveConfig
+      || !window
+        .trustnetDesktop
+        .saveConfig
     ) {
       setConfigError(
-        'Desktop configuration is unavailable in this environment.'
+        'Desktop configuration is unavailable in this environment.',
       )
       return
     }
@@ -135,46 +291,197 @@ function App() {
 
     try {
       const response =
-        await window.trustnetDesktop.saveConfig({
-          llmApiKey: openAiKey,
-          tavilyApiKey: tavilyKey,
-          llmModel: model,
-        })
+        await window
+          .trustnetDesktop
+          .saveConfig({
+            llmApiKey:
+              openAiKey,
+
+            tavilyApiKey:
+              tavilyKey,
+
+            llmModel:
+              model,
+          })
 
       if (
         !response.ok
       ) {
         throw new Error(
           response.error
-          || 'Unable to save TrustNet configuration.'
+          || 'Unable to save TrustNet configuration.',
         )
       }
 
+      const nextStatus =
+        response.status
+        || {
+          configured: true,
+          source: 'secure',
+          editable: true,
+          llmModel: model,
+          hasLlmApiKey: true,
+          hasTavilyApiKey: true,
+        }
+
+      setConfigStatus(
+        nextStatus,
+      )
+
       setConfigured(true)
-      setConfigSource('secure')
 
       setLlmApiKey('')
       setTavilyApiKey('')
+
+      setBackendOnline(true)
 
       await checkBackend()
     } catch (saveError) {
       setConfigError(
         saveError.message
-        || 'Unable to save TrustNet configuration.'
+        || 'Unable to save TrustNet configuration.',
       )
     } finally {
       setSavingConfig(false)
     }
   }
 
-  async function handleAnalyze(event) {
+  function openSettings() {
+    setSettingsLlmApiKey('')
+    setSettingsTavilyApiKey('')
+
+    setSettingsLlmModel(
+      configStatus?.llmModel
+      || '',
+    )
+
+    setSettingsError('')
+    setSettingsOpen(true)
+  }
+
+  function closeSettings() {
+    if (
+      settingsSaving
+    ) {
+      return
+    }
+
+    setSettingsOpen(false)
+    setSettingsError('')
+
+    setSettingsLlmApiKey('')
+    setSettingsTavilyApiKey('')
+  }
+
+  async function handleSaveSettings(
+    event,
+  ) {
     event.preventDefault()
 
-    const trimmedClaim = claim.trim()
+    if (
+      !window.trustnetDesktop
+      || !window
+        .trustnetDesktop
+        .saveConfig
+    ) {
+      setSettingsError(
+        'Desktop configuration is unavailable.',
+      )
+      return
+    }
 
-    if (!trimmedClaim) {
+    const model =
+      settingsLlmModel.trim()
+
+    if (
+      !model
+    ) {
+      setSettingsError(
+        'An OpenAI model is required.',
+      )
+      return
+    }
+
+    setSettingsSaving(true)
+    setSettingsError('')
+
+    try {
+      const response =
+        await window
+          .trustnetDesktop
+          .saveConfig({
+            llmApiKey:
+              settingsLlmApiKey
+                .trim(),
+
+            tavilyApiKey:
+              settingsTavilyApiKey
+                .trim(),
+
+            llmModel:
+              model,
+          })
+
+      if (
+        !response.ok
+      ) {
+        throw new Error(
+          response.error
+          || 'Unable to update TrustNet configuration.',
+        )
+      }
+
+      if (
+        response.status
+      ) {
+        setConfigStatus(
+          response.status,
+        )
+      } else {
+        setConfigStatus(
+          (previous) => ({
+            ...previous,
+            configured: true,
+            source: 'secure',
+            editable: true,
+            llmModel: model,
+            hasLlmApiKey: true,
+            hasTavilyApiKey: true,
+          }),
+        )
+      }
+
+      setConfigured(true)
+      setBackendOnline(true)
+
+      setSettingsLlmApiKey('')
+      setSettingsTavilyApiKey('')
+      setSettingsOpen(false)
+
+      await checkBackend()
+    } catch (saveError) {
+      setSettingsError(
+        saveError.message
+        || 'Unable to update TrustNet configuration.',
+      )
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
+
+  async function handleAnalyze(
+    event,
+  ) {
+    event.preventDefault()
+
+    const trimmedClaim =
+      claim.trim()
+
+    if (
+      !trimmedClaim
+    ) {
       setError(
-        'Enter a claim before starting analysis.'
+        'Enter a claim before starting analysis.',
       )
       return
     }
@@ -184,43 +491,59 @@ function App() {
     setResult(null)
 
     try {
-      const response = await fetch(
-        `${API_BASE}/analyze`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type':
-              'application/json',
+      const response =
+        await fetch(
+          `${API_BASE}/analyze`,
+          {
+            method: 'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
+
+            body:
+              JSON.stringify({
+                input:
+                  trimmedClaim,
+
+                input_type:
+                  'claim',
+
+                mode:
+                  'normal',
+              }),
           },
-          body: JSON.stringify({
-            input: trimmedClaim,
-            input_type: 'claim',
-            mode: 'normal',
-          }),
-        }
-      )
+        )
 
-      const data = await response.json()
+      const data =
+        await response.json()
 
-      if (!response.ok) {
+      if (
+        !response.ok
+      ) {
         throw new Error(
           data.detail
-          || 'Credibility analysis failed.'
+          || 'Credibility analysis failed.',
         )
       }
 
       setResult(data)
-    } catch (requestError) {
+    } catch (
+      requestError
+    ) {
       setError(
         requestError.message
-        || 'Unable to connect to the TrustNet backend.'
+        || 'Unable to connect to the TrustNet backend.',
       )
     } finally {
       setLoading(false)
     }
   }
 
-  function getScoreClass(score) {
+  function getScoreClass(
+    score,
+  ) {
     if (
       score === null
       || score === undefined
@@ -228,39 +551,59 @@ function App() {
       return 'score-insufficient'
     }
 
-    if (score >= 80) {
+    if (
+      score >= 80
+    ) {
       return 'score-high'
     }
 
-    if (score >= 60) {
+    if (
+      score >= 60
+    ) {
       return 'score-moderate'
     }
 
-    if (score >= 40) {
+    if (
+      score >= 40
+    ) {
       return 'score-low'
     }
 
     return 'score-poor'
   }
 
-  function getStanceClass(stance) {
-    return `stance stance-${stance}`
+  function getStanceClass(
+    stance,
+  ) {
+    return (
+      `stance stance-${stance}`
+    )
   }
 
-  function getQualityClass(quality) {
-    return `quality quality-${quality}`
+  function getQualityClass(
+    quality,
+  ) {
+    return (
+      `quality quality-${quality}`
+    )
   }
 
-  if (!configChecked) {
+  if (
+    !configChecked
+  ) {
     return (
       <div className="app">
         <div className="startup-screen">
           <div className="loader" />
 
           <div>
-            <h2>Starting TrustNet</h2>
+            <h2>
+              Starting TrustNet
+            </h2>
+
             <p>
-              Checking desktop configuration.
+              Checking desktop
+              configuration.
             </p>
           </div>
         </div>
@@ -268,7 +611,9 @@ function App() {
     )
   }
 
-  if (!configured) {
+  if (
+    !configured
+  ) {
     return (
       <div className="app">
         <header className="topbar">
@@ -278,15 +623,23 @@ function App() {
             </div>
 
             <div>
-              <h1>TrustNet</h1>
+              <h1>
+                TrustNet
+              </h1>
+
               <p>
-                Evidence-first credibility analysis
+                Evidence-first
+                credibility analysis
               </p>
             </div>
           </div>
 
-          <div className="backend-status offline">
+          <div
+            className=
+              "backend-status offline"
+          >
             <span className="status-dot" />
+
             Setup required
           </div>
         </header>
@@ -298,28 +651,41 @@ function App() {
             </span>
 
             <h2>
-              Connect TrustNet to its
-              <span> analysis services.</span>
+              Connect TrustNet
+              to its
+              <span>
+                {' '}
+                analysis services.
+              </span>
             </h2>
 
             <p>
-              TrustNet uses OpenAI for structured
-              credibility reasoning and Tavily for
-              evidence retrieval. Your credentials are
-              encrypted locally on this Windows device
-              and are not bundled into the application.
+              TrustNet uses OpenAI
+              for structured credibility
+              reasoning and Tavily for
+              evidence retrieval. Your
+              credentials are encrypted
+              locally on this Windows
+              device and are not bundled
+              into the application.
             </p>
           </section>
 
           <form
             className="setup-card"
-            onSubmit={handleSaveConfig}
+            onSubmit={
+              handleSaveConfig
+            }
           >
             <div className="setup-heading">
               <div>
-                <h3>API configuration</h3>
+                <h3>
+                  API configuration
+                </h3>
+
                 <p>
-                  Complete this once to activate
+                  Complete this once
+                  to activate
                   credibility analysis.
                 </p>
               </div>
@@ -330,53 +696,69 @@ function App() {
             </div>
 
             <label className="config-field">
-              <span>OpenAI API key</span>
+              <span>
+                OpenAI API key
+              </span>
 
               <input
                 type="password"
                 value={llmApiKey}
-                onChange={(event) =>
-                  setLlmApiKey(
-                    event.target.value
-                  )
+                onChange={
+                  (event) =>
+                    setLlmApiKey(
+                      event.target.value,
+                    )
                 }
                 placeholder="sk-..."
                 autoComplete="off"
-                disabled={savingConfig}
+                disabled={
+                  savingConfig
+                }
               />
             </label>
 
             <label className="config-field">
-              <span>Tavily API key</span>
+              <span>
+                Tavily API key
+              </span>
 
               <input
                 type="password"
                 value={tavilyApiKey}
-                onChange={(event) =>
-                  setTavilyApiKey(
-                    event.target.value
-                  )
+                onChange={
+                  (event) =>
+                    setTavilyApiKey(
+                      event.target.value,
+                    )
                 }
                 placeholder="tvly-..."
                 autoComplete="off"
-                disabled={savingConfig}
+                disabled={
+                  savingConfig
+                }
               />
             </label>
 
             <label className="config-field">
-              <span>OpenAI model</span>
+              <span>
+                OpenAI model
+              </span>
 
               <input
                 type="text"
                 value={llmModel}
-                onChange={(event) =>
-                  setLlmModel(
-                    event.target.value
-                  )
+                onChange={
+                  (event) =>
+                    setLlmModel(
+                      event.target.value,
+                    )
                 }
-                placeholder="Enter the model available to your API account"
+                placeholder=
+                  "Enter the model available to your API account"
                 autoComplete="off"
-                disabled={savingConfig}
+                disabled={
+                  savingConfig
+                }
               />
             </label>
 
@@ -387,8 +769,9 @@ function App() {
             )}
 
             <div className="setup-note">
-              TrustNet never stores these credentials
-              inside the installer or Git repository.
+              TrustNet never stores these
+              credentials inside the
+              installer or Git repository.
             </div>
 
             <button
@@ -401,19 +784,25 @@ function App() {
                 || !llmModel.trim()
               }
             >
-              {savingConfig
-                ? 'Saving and starting TrustNet...'
-                : 'Save and start TrustNet'}
+              {
+                savingConfig
+                  ? 'Saving and starting TrustNet...'
+                  : 'Save and start TrustNet'
+              }
             </button>
           </form>
         </main>
 
         <footer>
-          <strong>TrustNet</strong>
+          <strong>
+            TrustNet
+          </strong>
 
           <span>
-            Evidence-first credibility analysis using
-            LLMs and retrieval-augmented generation.
+            Evidence-first credibility
+            analysis using LLMs and
+            retrieval-augmented
+            generation.
           </span>
         </footer>
       </div>
@@ -429,39 +818,71 @@ function App() {
           </div>
 
           <div>
-            <h1>TrustNet</h1>
+            <h1>
+              TrustNet
+            </h1>
+
             <p>
-              Evidence-first credibility analysis
+              Evidence-first
+              credibility analysis
             </p>
           </div>
         </div>
 
         <div className="topbar-actions">
-          {configSource === 'secure' && (
-            <span className="config-indicator">
-              Secure config
-            </span>
-          )}
+          {
+            configStatus?.source
+              === 'secure'
+            && (
+              <span className="config-indicator">
+                Secure config
+              </span>
+            )
+          }
+
+          {
+            configStatus?.editable
+            && (
+              <button
+                type="button"
+                className=
+                  "settings-trigger"
+                onClick={
+                  openSettings
+                }
+              >
+                Settings
+              </button>
+            )
+          }
 
           <div
-            className={`backend-status ${
-              backendOnline === true
-                ? 'online'
-                : backendOnline === false
-                  ? 'offline'
-                  : ''
-            }`}
+            className={
+              `backend-status ${
+                backendOnline === true
+                  ? 'online'
+                  : backendOnline === false
+                    ? 'offline'
+                    : ''
+              }`
+            }
           >
             <span className="status-dot" />
 
-            {backendOnline === null
-              && 'Checking API'}
+            {
+              backendOnline === null
+              && 'Checking API'
+            }
 
-            {backendOnline === true
-              && 'API Online'}
+            {
+              backendOnline === true
+              && 'API Online'
+            }
 
-            {backendOnline === false
-              && 'API Offline'}
+            {
+              backendOnline === false
+              && 'API Offline'
+            }
           </div>
         </div>
       </header>
@@ -470,32 +891,44 @@ function App() {
         <section className="hero">
           <div className="hero-copy">
             <span className="eyebrow">
-              Intelligent credibility analysis
+              Intelligent credibility
+              analysis
             </span>
 
             <h2>
               Check a claim against
-              <span> real-world evidence.</span>
+              <span>
+                {' '}
+                real-world evidence.
+              </span>
             </h2>
 
             <p>
-              TrustNet retrieves relevant evidence,
-              analyzes factual consistency and source
-              quality, and produces an evidence-first
-              credibility assessment.
+              TrustNet retrieves
+              relevant evidence,
+              analyzes factual
+              consistency and source
+              quality, and produces an
+              evidence-first credibility
+              assessment.
             </p>
           </div>
 
           <form
             className="analysis-card"
-            onSubmit={handleAnalyze}
+            onSubmit={
+              handleAnalyze
+            }
           >
             <div className="input-heading">
               <div>
-                <h3>Analyze a claim</h3>
+                <h3>
+                  Analyze a claim
+                </h3>
 
                 <p>
-                  Enter one factual claim for the
+                  Enter one factual
+                  claim for the
                   current MVP.
                 </p>
               </div>
@@ -507,19 +940,23 @@ function App() {
 
             <textarea
               value={claim}
-              onChange={(event) =>
-                setClaim(
-                  event.target.value
-                )
+              onChange={
+                (event) =>
+                  setClaim(
+                    event.target.value,
+                  )
               }
-              placeholder="Example: The Earth orbits the Sun."
+              placeholder=
+                "Example: The Earth orbits the Sun."
               rows={6}
               disabled={loading}
             />
 
             <div className="form-footer">
               <span className="character-count">
-                {claim.length} characters
+                {claim.length}
+                {' '}
+                characters
               </span>
 
               <button
@@ -527,19 +964,25 @@ function App() {
                 disabled={
                   loading
                   || !claim.trim()
-                  || backendOnline !== true
+                  || backendOnline
+                    !== true
                 }
               >
-                {loading
-                  ? 'Analyzing...'
-                  : 'Analyze credibility'}
+                {
+                  loading
+                    ? 'Analyzing...'
+                    : 'Analyze credibility'
+                }
               </button>
             </div>
           </form>
         </section>
 
         {error && (
-          <section className="message error-message">
+          <section
+            className=
+              "message error-message"
+          >
             <strong>
               Analysis failed
             </strong>
@@ -560,8 +1003,9 @@ function App() {
               </h3>
 
               <p>
-                Retrieving sources and evaluating
-                the claim. This can take several
+                Retrieving sources and
+                evaluating the claim.
+                This can take several
                 seconds.
               </p>
             </div>
@@ -586,18 +1030,28 @@ function App() {
               </div>
 
               <div
-                className={`score-circle ${getScoreClass(
-                  result.overall_score
-                )}`}
+                className={
+                  `score-circle ${
+                    getScoreClass(
+                      result.overall_score,
+                    )
+                  }`
+                }
               >
                 <span className="score-value">
-                  {result.overall_score ?? '—'}
+                  {
+                    result.overall_score
+                    ?? '—'
+                  }
                 </span>
 
                 <span className="score-total">
-                  {result.overall_score === null
-                    ? 'N/A'
-                    : '/ 100'}
+                  {
+                    result.overall_score
+                      === null
+                      ? 'N/A'
+                      : '/ 100'
+                  }
                 </span>
               </div>
             </div>
@@ -619,7 +1073,11 @@ function App() {
                 </span>
 
                 <strong className="capitalize">
-                  {result.uncertainty.level}
+                  {
+                    result
+                      .uncertainty
+                      .level
+                  }
                 </strong>
               </article>
 
@@ -629,7 +1087,11 @@ function App() {
                 </span>
 
                 <strong>
-                  {result.evidence.length}
+                  {
+                    result
+                      .evidence
+                      .length
+                  }
                 </strong>
               </article>
 
@@ -639,79 +1101,116 @@ function App() {
                 </span>
 
                 <strong>
-                  {(result.latency_ms / 1000)
-                    .toFixed(1)}s
+                  {
+                    (
+                      result.latency_ms
+                      / 1000
+                    ).toFixed(1)
+                  }
+                  s
                 </strong>
               </article>
             </div>
 
-            {result.uncertainty
-              .gate_triggered && (
-              <div className="uncertainty-warning">
-                <strong>
-                  Insufficient evidence gate
-                  triggered
-                </strong>
+            {
+              result
+                .uncertainty
+                .gate_triggered
+              && (
+                <div
+                  className=
+                    "uncertainty-warning"
+                >
+                  <strong>
+                    Insufficient evidence
+                    gate triggered
+                  </strong>
 
-                <span>
-                  {result.uncertainty.reason}
-                </span>
-              </div>
-            )}
+                  <span>
+                    {
+                      result
+                        .uncertainty
+                        .reason
+                    }
+                  </span>
+                </div>
+              )
+            }
 
-            {result.factors && (
-              <section className="result-section">
-                <div className="section-heading">
-                  <div>
-                    <span className="eyebrow">
-                      Credibility framework
-                    </span>
+            {
+              result.factors
+              && (
+                <section className="result-section">
+                  <div className="section-heading">
+                    <div>
+                      <span className="eyebrow">
+                        Credibility framework
+                      </span>
 
-                    <h3>
-                      Factor breakdown
-                    </h3>
+                      <h3>
+                        Factor breakdown
+                      </h3>
+                    </div>
                   </div>
-                </div>
 
-                <div className="factor-list">
-                  {Object.entries(
-                    result.factors
-                  ).map(
-                    ([key, factor]) => (
-                      <article
-                        className="factor-card"
-                        key={key}
-                      >
-                        <div className="factor-top">
-                          <strong>
-                            {factorNames[key]
-                              || key}
-                          </strong>
+                  <div className="factor-list">
+                    {
+                      Object.entries(
+                        result.factors,
+                      ).map(
+                        (
+                          [
+                            key,
+                            factor,
+                          ],
+                        ) => (
+                          <article
+                            className=
+                              "factor-card"
+                            key={key}
+                          >
+                            <div className="factor-top">
+                              <strong>
+                                {
+                                  factorNames[
+                                    key
+                                  ]
+                                  || key
+                                }
+                              </strong>
 
-                          <span>
-                            {factor.score}/100
-                          </span>
-                        </div>
+                              <span>
+                                {
+                                  factor.score
+                                }
+                                /100
+                              </span>
+                            </div>
 
-                        <div className="factor-track">
-                          <div
-                            className="factor-fill"
-                            style={{
-                              width:
-                                `${factor.score}%`,
-                            }}
-                          />
-                        </div>
+                            <div className="factor-track">
+                              <div
+                                className="factor-fill"
+                                style={{
+                                  width:
+                                    `${factor.score}%`,
+                                }}
+                              />
+                            </div>
 
-                        <p>
-                          {factor.justification}
-                        </p>
-                      </article>
-                    )
-                  )}
-                </div>
-              </section>
-            )}
+                            <p>
+                              {
+                                factor
+                                  .justification
+                              }
+                            </p>
+                          </article>
+                        ),
+                      )
+                    }
+                  </div>
+                </section>
+              )
+            }
 
             <section className="result-section">
               <div className="section-heading">
@@ -726,105 +1225,159 @@ function App() {
                 </div>
 
                 <span className="section-count">
-                  {result.evidence.length}
+                  {
+                    result
+                      .evidence
+                      .length
+                  }
                 </span>
               </div>
 
-              {result.evidence.length === 0 ? (
-                <div className="empty-state">
-                  No public evidence items were
-                  returned.
-                </div>
-              ) : (
-                <div className="evidence-list">
-                  {result.evidence.map(
-                    (item, index) => (
-                      <article
-                        className="evidence-card"
-                        key={`${item.url}-${index}`}
-                      >
-                        <div className="evidence-top">
-                          <div className="evidence-number">
-                            {index + 1}
-                          </div>
-
-                          <div className="evidence-title">
-                            <a
-                              href={item.url}
-                              target="_blank"
-                              rel="noreferrer"
+              {
+                result.evidence.length
+                  === 0
+                  ? (
+                    <div className="empty-state">
+                      No public evidence
+                      items were returned.
+                    </div>
+                  )
+                  : (
+                    <div className="evidence-list">
+                      {
+                        result.evidence.map(
+                          (
+                            item,
+                            index,
+                          ) => (
+                            <article
+                              className=
+                                "evidence-card"
+                              key={
+                                `${item.url}-${index}`
+                              }
                             >
-                              {item.title}
-                            </a>
+                              <div className="evidence-top">
+                                <div
+                                  className=
+                                    "evidence-number"
+                                >
+                                  {
+                                    index
+                                    + 1
+                                  }
+                                </div>
 
-                            <span>
-                              {item.source}
-                            </span>
-                          </div>
-                        </div>
+                                <div
+                                  className=
+                                    "evidence-title"
+                                >
+                                  <a
+                                    href={
+                                      item.url
+                                    }
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {
+                                      item
+                                        .title
+                                    }
+                                  </a>
 
-                        <div className="badges">
-                          <span
-                            className={
-                              getStanceClass(
-                                item.stance
-                              )
-                            }
-                          >
-                            {item.stance}
-                          </span>
+                                  <span>
+                                    {
+                                      item
+                                        .source
+                                    }
+                                  </span>
+                                </div>
+                              </div>
 
-                          <span
-                            className={
-                              getQualityClass(
-                                item.quality
-                              )
-                            }
-                          >
-                            {item.quality}
-                            {' '}
-                            quality
-                          </span>
-                        </div>
+                              <div className="badges">
+                                <span
+                                  className={
+                                    getStanceClass(
+                                      item.stance,
+                                    )
+                                  }
+                                >
+                                  {
+                                    item
+                                      .stance
+                                  }
+                                </span>
 
-                        <p>
-                          {item.summary}
-                        </p>
-                      </article>
-                    )
-                  )}
-                </div>
-              )}
+                                <span
+                                  className={
+                                    getQualityClass(
+                                      item.quality,
+                                    )
+                                  }
+                                >
+                                  {
+                                    item
+                                      .quality
+                                  }
+                                  {' '}
+                                  quality
+                                </span>
+                              </div>
+
+                              <p>
+                                {
+                                  item
+                                    .summary
+                                }
+                              </p>
+                            </article>
+                          ),
+                        )
+                      }
+                    </div>
+                  )
+              }
             </section>
 
-            {result.flags.length > 0 && (
-              <section className="result-section">
-                <div className="section-heading">
-                  <div>
-                    <span className="eyebrow">
-                      Additional signals
-                    </span>
-
-                    <h3>
-                      Flags
-                    </h3>
-                  </div>
-                </div>
-
-                <div className="flags">
-                  {result.flags.map(
-                    (flag, index) => (
-                      <span
-                        className="flag"
-                        key={`${flag}-${index}`}
-                      >
-                        {flag}
+            {
+              result.flags.length
+                > 0
+              && (
+                <section className="result-section">
+                  <div className="section-heading">
+                    <div>
+                      <span className="eyebrow">
+                        Additional signals
                       </span>
-                    )
-                  )}
-                </div>
-              </section>
-            )}
+
+                      <h3>
+                        Flags
+                      </h3>
+                    </div>
+                  </div>
+
+                  <div className="flags">
+                    {
+                      result.flags.map(
+                        (
+                          flag,
+                          index,
+                        ) => (
+                          <span
+                            className="flag"
+                            key={
+                              `${flag}-${index}`
+                            }
+                          >
+                            {flag}
+                          </span>
+                        ),
+                      )
+                    }
+                  </div>
+                </section>
+              )
+            }
           </section>
         )}
       </main>
@@ -835,10 +1388,228 @@ function App() {
         </strong>
 
         <span>
-          Evidence-first credibility analysis using
-          LLMs and retrieval-augmented generation.
+          Evidence-first credibility
+          analysis using LLMs and
+          retrieval-augmented
+          generation.
         </span>
       </footer>
+
+      {
+        settingsOpen
+        && (
+          <div
+            className=
+              "settings-backdrop"
+            onMouseDown={
+              (event) => {
+                if (
+                  event.target
+                  === event.currentTarget
+                ) {
+                  closeSettings()
+                }
+              }
+            }
+          >
+            <section
+              className=
+                "settings-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby=
+                "settings-title"
+            >
+              <div className="settings-header">
+                <div>
+                  <span className="eyebrow">
+                    Desktop configuration
+                  </span>
+
+                  <h2 id="settings-title">
+                    TrustNet settings
+                  </h2>
+
+                  <p>
+                    Update the credentials
+                    or model used by the
+                    local TrustNet backend.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className=
+                    "settings-close"
+                  onClick={
+                    closeSettings
+                  }
+                  disabled={
+                    settingsSaving
+                  }
+                  aria-label=
+                    "Close settings"
+                >
+                  ×
+                </button>
+              </div>
+
+              <form
+                onSubmit={
+                  handleSaveSettings
+                }
+              >
+                <label className="config-field">
+                  <span>
+                    OpenAI API key
+                  </span>
+
+                  <input
+                    type="password"
+                    value={
+                      settingsLlmApiKey
+                    }
+                    onChange={
+                      (event) =>
+                        setSettingsLlmApiKey(
+                          event.target.value,
+                        )
+                    }
+                    placeholder={
+                      configStatus
+                        ?.hasLlmApiKey
+                        ? 'Stored securely — leave blank to keep it'
+                        : 'Enter OpenAI API key'
+                    }
+                    autoComplete="off"
+                    disabled={
+                      settingsSaving
+                    }
+                  />
+                </label>
+
+                <label className="config-field">
+                  <span>
+                    Tavily API key
+                  </span>
+
+                  <input
+                    type="password"
+                    value={
+                      settingsTavilyApiKey
+                    }
+                    onChange={
+                      (event) =>
+                        setSettingsTavilyApiKey(
+                          event.target.value,
+                        )
+                    }
+                    placeholder={
+                      configStatus
+                        ?.hasTavilyApiKey
+                        ? 'Stored securely — leave blank to keep it'
+                        : 'Enter Tavily API key'
+                    }
+                    autoComplete="off"
+                    disabled={
+                      settingsSaving
+                    }
+                  />
+                </label>
+
+                <label className="config-field">
+                  <span>
+                    OpenAI model
+                  </span>
+
+                  <input
+                    type="text"
+                    value={
+                      settingsLlmModel
+                    }
+                    onChange={
+                      (event) =>
+                        setSettingsLlmModel(
+                          event.target.value,
+                        )
+                    }
+                    placeholder=
+                      "OpenAI model"
+                    autoComplete="off"
+                    disabled={
+                      settingsSaving
+                    }
+                  />
+                </label>
+
+                <div className="settings-security">
+                  <strong>
+                    Existing API keys are
+                    never displayed.
+                  </strong>
+
+                  <span>
+                    Leave a key field blank
+                    to keep the encrypted
+                    credential already
+                    stored on this device.
+                  </span>
+                </div>
+
+                <div className="settings-restart-note">
+                  Saving settings restarts
+                  the local TrustNet backend.
+                  This does not perform a
+                  credibility analysis or
+                  consume analysis API calls.
+                </div>
+
+                {
+                  settingsError
+                  && (
+                    <div className="setup-error">
+                      {
+                        settingsError
+                      }
+                    </div>
+                  )
+                }
+
+                <div className="settings-actions">
+                  <button
+                    type="button"
+                    className=
+                      "secondary-button"
+                    onClick={
+                      closeSettings
+                    }
+                    disabled={
+                      settingsSaving
+                    }
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={
+                      settingsSaving
+                      || !settingsLlmModel
+                        .trim()
+                    }
+                  >
+                    {
+                      settingsSaving
+                        ? 'Saving and restarting...'
+                        : 'Save settings'
+                    }
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        )
+      }
     </div>
   )
 }
