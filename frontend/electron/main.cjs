@@ -3,6 +3,8 @@ const {
   BrowserWindow,
   Menu,
   dialog,
+  ipcMain,
+  safeStorage,
 } = require('electron')
 
 const {
@@ -35,6 +37,39 @@ const BACKEND_HEALTH_URL =
 let viteProcess = null
 let backendProcess = null
 let backendLogFd = null
+
+
+function getConfigDirectory() {
+  return path.join(
+    app.getPath('appData'),
+    'TrustNet',
+  )
+}
+
+
+function getSecureConfigPath() {
+  return path.join(
+    getConfigDirectory(),
+    'config.json',
+  )
+}
+
+
+function getLegacyEnvPath() {
+  return path.join(
+    getConfigDirectory(),
+    '.env',
+  )
+}
+
+
+function getBackendLogPath() {
+  return path.join(
+    getConfigDirectory(),
+    'logs',
+    'backend.log',
+  )
+}
 
 
 function waitForUrl(
@@ -103,6 +138,176 @@ function waitForUrl(
       check()
     },
   )
+}
+
+
+function hasSecureConfig() {
+  return fs.existsSync(
+    getSecureConfigPath(),
+  )
+}
+
+
+function hasLegacyConfig() {
+  return fs.existsSync(
+    getLegacyEnvPath(),
+  )
+}
+
+
+function readSecureConfig() {
+  const rawConfig = JSON.parse(
+    fs.readFileSync(
+      getSecureConfigPath(),
+      'utf8',
+    ),
+  )
+
+  if (
+    !safeStorage.isEncryptionAvailable()
+  ) {
+    throw new Error(
+      'Secure credential storage is unavailable.',
+    )
+  }
+
+  return {
+    llmApiKey:
+      safeStorage.decryptString(
+        Buffer.from(
+          rawConfig.llmApiKey,
+          'base64',
+        ),
+      ),
+
+    tavilyApiKey:
+      safeStorage.decryptString(
+        Buffer.from(
+          rawConfig.tavilyApiKey,
+          'base64',
+        ),
+      ),
+
+    llmModel:
+      rawConfig.llmModel,
+  }
+}
+
+
+function writeSecureConfig(
+  config,
+) {
+  if (
+    !safeStorage.isEncryptionAvailable()
+  ) {
+    throw new Error(
+      'Secure credential storage is unavailable.',
+    )
+  }
+
+  const configDirectory =
+    getConfigDirectory()
+
+  fs.mkdirSync(
+    configDirectory,
+    {
+      recursive: true,
+    },
+  )
+
+  const secureConfig = {
+    llmApiKey:
+      safeStorage.encryptString(
+        config.llmApiKey,
+      ).toString(
+        'base64',
+      ),
+
+    tavilyApiKey:
+      safeStorage.encryptString(
+        config.tavilyApiKey,
+      ).toString(
+        'base64',
+      ),
+
+    llmModel:
+      config.llmModel,
+  }
+
+  const configPath =
+    getSecureConfigPath()
+
+  const temporaryPath =
+    `${configPath}.tmp`
+
+  fs.writeFileSync(
+    temporaryPath,
+    JSON.stringify(
+      secureConfig,
+      null,
+      2,
+    ),
+    'utf8',
+  )
+
+  fs.renameSync(
+    temporaryPath,
+    configPath,
+  )
+}
+
+
+function getConfigStatus() {
+  if (
+    !app.isPackaged
+  ) {
+    return {
+      configured: true,
+      source: 'development',
+    }
+  }
+
+  if (
+    hasSecureConfig()
+  ) {
+    return {
+      configured: true,
+      source: 'secure',
+    }
+  }
+
+  if (
+    hasLegacyConfig()
+  ) {
+    return {
+      configured: true,
+      source: 'legacy',
+    }
+  }
+
+  return {
+    configured: false,
+    source: null,
+  }
+}
+
+
+function closeBackendLog() {
+  if (
+    backendLogFd === null
+  ) {
+    return
+  }
+
+  try {
+    fs.closeSync(
+      backendLogFd,
+    )
+  } catch {
+    // The descriptor may already be closed.
+  }
+
+  backendLogFd = null
 }
 
 
@@ -211,10 +416,8 @@ function startPackagedBackend() {
     )
   }
 
-  const configDirectory = path.join(
-    app.getPath('appData'),
-    'TrustNet',
-  )
+  const configDirectory =
+    getConfigDirectory()
 
   const logDirectory = path.join(
     configDirectory,
@@ -228,40 +431,68 @@ function startPackagedBackend() {
     },
   )
 
-  const envFilePath = path.join(
-    configDirectory,
-    '.env',
-  )
+  const logFilePath =
+    getBackendLogPath()
 
-  const logFilePath = path.join(
-    logDirectory,
-    'backend.log',
-  )
+  const childEnvironment = {
+    ...process.env,
+    EMBEDDING_MODEL:
+      embeddingModelPath,
+    RERANKER_MODEL:
+      rerankerModelPath,
+    HF_HUB_OFFLINE:
+      '1',
+  }
+
+  let configurationSource = null
+
+  if (
+    hasSecureConfig()
+  ) {
+    const secureConfig =
+      readSecureConfig()
+
+    childEnvironment.LLM_API_KEY =
+      secureConfig.llmApiKey
+
+    childEnvironment.TAVILY_API_KEY =
+      secureConfig.tavilyApiKey
+
+    childEnvironment.LLM_MODEL =
+      secureConfig.llmModel
+
+    delete childEnvironment
+      .TRUSTNET_ENV_FILE
+
+    configurationSource =
+      'secure'
+  } else if (
+    hasLegacyConfig()
+  ) {
+    childEnvironment
+      .TRUSTNET_ENV_FILE =
+        getLegacyEnvPath()
+
+    configurationSource =
+      'legacy'
+  } else {
+    throw new Error(
+      'TrustNet API configuration has not been set up.',
+    )
+  }
 
   fs.appendFileSync(
     logFilePath,
-    `\n\n===== TrustNet startup ${new Date().toISOString()} =====\n`,
+    (
+      `\n\n===== TrustNet startup ${new Date().toISOString()} =====\n`
+      + `Backend: ${backendPath}\n`
+      + `Embedding model: ${embeddingModelPath}\n`
+      + `Reranker model: ${rerankerModelPath}\n`
+      + `Configuration source: ${configurationSource}\n`
+    ),
   )
 
-  fs.appendFileSync(
-    logFilePath,
-    `Backend: ${backendPath}\n`,
-  )
-
-  fs.appendFileSync(
-    logFilePath,
-    `Embedding model: ${embeddingModelPath}\n`,
-  )
-
-  fs.appendFileSync(
-    logFilePath,
-    `Reranker model: ${rerankerModelPath}\n`,
-  )
-
-  fs.appendFileSync(
-    logFilePath,
-    `Environment file exists: ${fs.existsSync(envFilePath)}\n`,
-  )
+  closeBackendLog()
 
   backendLogFd = fs.openSync(
     logFilePath,
@@ -281,17 +512,7 @@ function startPackagedBackend() {
         backendLogFd,
       ],
       windowsHide: true,
-      env: {
-        ...process.env,
-        EMBEDDING_MODEL:
-          embeddingModelPath,
-        RERANKER_MODEL:
-          rerankerModelPath,
-        HF_HUB_OFFLINE:
-          '1',
-        TRUSTNET_ENV_FILE:
-          envFilePath,
-      },
+      env: childEnvironment,
     },
   )
 
@@ -317,6 +538,8 @@ function startPackagedBackend() {
         logFilePath,
         `Backend exited. Code: ${code}, signal: ${signal}\n`,
       )
+
+      backendProcess = null
     },
   )
 }
@@ -410,6 +633,102 @@ function stopProcess(
 }
 
 
+async function restartPackagedBackend() {
+  if (
+    backendProcess
+  ) {
+    stopProcess(
+      backendProcess,
+    )
+
+    backendProcess = null
+  }
+
+  closeBackendLog()
+
+  startPackagedBackend()
+
+  await waitForUrl(
+    BACKEND_HEALTH_URL,
+    180000,
+  )
+}
+
+
+function registerIpcHandlers() {
+  ipcMain.handle(
+    'trustnet:get-config-status',
+    () => (
+      getConfigStatus()
+    ),
+  )
+
+  ipcMain.handle(
+    'trustnet:save-config',
+    async (
+      _event,
+      config,
+    ) => {
+      if (
+        !app.isPackaged
+      ) {
+        return {
+          ok: false,
+          error:
+            'Desktop API configuration is only used by packaged builds.',
+        }
+      }
+
+      const llmApiKey = String(
+        config?.llmApiKey ?? '',
+      ).trim()
+
+      const tavilyApiKey = String(
+        config?.tavilyApiKey ?? '',
+      ).trim()
+
+      const llmModel = String(
+        config?.llmModel ?? '',
+      ).trim()
+
+      if (
+        !llmApiKey
+        || !tavilyApiKey
+        || !llmModel
+      ) {
+        return {
+          ok: false,
+          error:
+            'OpenAI API key, Tavily API key, and model are required.',
+        }
+      }
+
+      try {
+        writeSecureConfig({
+          llmApiKey,
+          tavilyApiKey,
+          llmModel,
+        })
+
+        await restartPackagedBackend()
+
+        return {
+          ok: true,
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error),
+        }
+      }
+    },
+  )
+}
+
+
 function createWindow() {
   Menu.setApplicationMenu(
     null,
@@ -426,6 +745,10 @@ function createWindow() {
       autoHideMenuBar: true,
       backgroundColor: '#071525',
       webPreferences: {
+        preload: path.join(
+          __dirname,
+          'preload.cjs',
+        ),
         contextIsolation: true,
         nodeIntegration: false,
       },
@@ -474,25 +797,46 @@ async function startDevelopmentApp() {
 }
 
 
-async function startPackagedApp() {
-  startPackagedBackend()
-
-  await waitForUrl(
-    BACKEND_HEALTH_URL,
-    180000,
-  )
-
+function startPackagedApp() {
   createWindow()
+
+  const status =
+    getConfigStatus()
+
+  if (
+    !status.configured
+  ) {
+    return
+  }
+
+  try {
+    startPackagedBackend()
+  } catch (error) {
+    console.error(
+      'TrustNet packaged backend failed to start:',
+      error,
+    )
+
+    dialog.showErrorBox(
+      'TrustNet backend failed to start',
+      (
+        `${String(error)}\n\n`
+        + `Backend log:\n${getBackendLogPath()}`
+      ),
+    )
+  }
 }
 
 
 app.whenReady().then(
   async () => {
+    registerIpcHandlers()
+
     try {
       if (
         app.isPackaged
       ) {
-        await startPackagedApp()
+        startPackagedApp()
       } else {
         await startDevelopmentApp()
       }
@@ -502,16 +846,11 @@ app.whenReady().then(
         error,
       )
 
-      const logFilePath = path.join(
-        app.getPath('appData'),
-        'TrustNet',
-        'logs',
-        'backend.log',
-      )
-
       dialog.showErrorBox(
         'TrustNet startup failed',
-        `${String(error)}\n\nBackend log:\n${logFilePath}`,
+        String(
+          error,
+        ),
       )
 
       app.quit()
@@ -545,19 +884,7 @@ app.on(
       backendProcess,
     )
 
-    if (
-      backendLogFd !== null
-    ) {
-      try {
-        fs.closeSync(
-          backendLogFd,
-        )
-      } catch {
-        // File descriptor may already be closed.
-      }
-
-      backendLogFd = null
-    }
+    closeBackendLog()
   },
 )
 
