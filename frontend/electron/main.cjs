@@ -72,6 +72,31 @@ function getBackendLogPath() {
 }
 
 
+function getWindowIconPath() {
+  const iconPath =
+    app.isPackaged
+      ? path.join(
+        process.resourcesPath,
+        'app-icon.png',
+      )
+      : path.join(
+        FRONTEND_DIR,
+        'build',
+        'icon.png',
+      )
+
+  if (
+    fs.existsSync(
+      iconPath,
+    )
+  ) {
+    return iconPath
+  }
+
+  return undefined
+}
+
+
 function waitForUrl(
   url,
   timeoutMs = 60000,
@@ -1205,6 +1230,7 @@ function createWindow() {
       show: false,
       autoHideMenuBar: true,
       backgroundColor: '#071525',
+      icon: getWindowIconPath(),
       webPreferences: {
         preload: path.join(
           __dirname,

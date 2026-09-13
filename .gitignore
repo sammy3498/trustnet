@@ -162,9 +162,6 @@ cython_debug/
 # PyCharm
 # .idea/
 
-# Abstra
-.abstra/
-
 # Visual Studio Code
 # .vscode/
 
@@ -214,3 +211,9 @@ vector_store/
 # TrustNet desktop packaging
 desktop_resources/models/
 frontend/release/
+
+# TrustNet desktop branding
+!frontend/build/
+frontend/build/*
+!frontend/build/icon.ico
+!frontend/build/icon.png

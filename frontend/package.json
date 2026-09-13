@@ -38,7 +38,8 @@
     "asar": true,
     "electronDist": "node_modules/electron/dist",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
@@ -53,9 +54,14 @@
       {
         "from": "../desktop_resources/models",
         "to": "models"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "app-icon.png"
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -70,7 +76,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "TrustNet"
+      "shortcutName": "TrustNet",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     },
     "artifactName": "TrustNet-Setup-${version}.${ext}"
   }
