@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from 'react'
 
@@ -8,6 +9,8 @@ import './App.css'
 
 const API_BASE =
   'http://127.0.0.1:8000'
+
+const HEALTH_FAILURE_LIMIT = 8
 
 const factorNames = {
   evidence_strength:
@@ -39,6 +42,9 @@ function App() {
     backendOnline,
     setBackendOnline,
   ] = useState(null)
+
+  const backendFailureCount =
+    useRef(0)
 
   const [
     configChecked,
@@ -110,6 +116,15 @@ function App() {
     setSettingsError,
   ] = useState('')
 
+  const markBackendStarting =
+    useCallback(
+      () => {
+        backendFailureCount.current = 0
+        setBackendOnline(null)
+      },
+      [],
+    )
+
   const checkBackend =
     useCallback(
       async () => {
@@ -126,15 +141,28 @@ function App() {
             response.ok
             && data.status === 'ok'
 
-          setBackendOnline(
-            online,
-          )
+          if (online) {
+            backendFailureCount.current = 0
+            setBackendOnline(true)
 
-          return online
+            return true
+          }
         } catch {
-          setBackendOnline(false)
-          return false
+          // Handled below as a failed health check.
         }
+
+        backendFailureCount.current += 1
+
+        if (
+          backendFailureCount.current
+          >= HEALTH_FAILURE_LIMIT
+        ) {
+          setBackendOnline(false)
+        } else {
+          setBackendOnline(null)
+        }
+
+        return false
       },
       [],
     )
@@ -181,6 +209,7 @@ function App() {
             if (
               status.configured
             ) {
+              markBackendStarting()
               await checkBackend()
             } else {
               setBackendOnline(
@@ -197,7 +226,9 @@ function App() {
             setConfigured(true)
             setConfigChecked(true)
 
+            markBackendStarting()
             await checkBackend()
+
             return
           }
         }
@@ -205,6 +236,7 @@ function App() {
         setConfigured(true)
         setConfigChecked(true)
 
+        markBackendStarting()
         await checkBackend()
       }
 
@@ -216,6 +248,7 @@ function App() {
     },
     [
       checkBackend,
+      markBackendStarting,
     ],
   )
 
@@ -271,6 +304,7 @@ function App() {
       setConfigError(
         'OpenAI API key, Tavily API key, and model are required.',
       )
+
       return
     }
 
@@ -283,6 +317,7 @@ function App() {
       setConfigError(
         'Desktop configuration is unavailable in this environment.',
       )
+
       return
     }
 
@@ -333,6 +368,7 @@ function App() {
       setLlmApiKey('')
       setTavilyApiKey('')
 
+      backendFailureCount.current = 0
       setBackendOnline(true)
 
       await checkBackend()
@@ -387,6 +423,7 @@ function App() {
       setSettingsError(
         'Desktop configuration is unavailable.',
       )
+
       return
     }
 
@@ -399,11 +436,14 @@ function App() {
       setSettingsError(
         'An OpenAI model is required.',
       )
+
       return
     }
 
     setSettingsSaving(true)
     setSettingsError('')
+
+    markBackendStarting()
 
     try {
       const response =
@@ -452,6 +492,8 @@ function App() {
       }
 
       setConfigured(true)
+
+      backendFailureCount.current = 0
       setBackendOnline(true)
 
       setSettingsLlmApiKey('')
@@ -464,6 +506,8 @@ function App() {
         saveError.message
         || 'Unable to update TrustNet configuration.',
       )
+
+      await checkBackend()
     } finally {
       setSettingsSaving(false)
     }
@@ -483,6 +527,7 @@ function App() {
       setError(
         'Enter a claim before starting analysis.',
       )
+
       return
     }
 
@@ -871,7 +916,7 @@ function App() {
 
             {
               backendOnline === null
-              && 'Checking API'
+              && 'Starting API...'
             }
 
             {
