@@ -33,7 +33,7 @@ EVIDENCE_ANALYSIS_SCHEMA = (
 )
 
 EVIDENCE_ANALYSIS_TIMEOUT_SECONDS = (
-    10.5
+    55.0
 )
 
 NORMAL_MODE_EVIDENCE_MAX_CHARS = (
@@ -45,7 +45,9 @@ def resolve_evidence_analysis_timeout(
     timeout_seconds: float | None,
 ) -> float:
     if timeout_seconds is None:
-        return EVIDENCE_ANALYSIS_TIMEOUT_SECONDS
+        return (
+            EVIDENCE_ANALYSIS_TIMEOUT_SECONDS
+        )
 
     return min(
         EVIDENCE_ANALYSIS_TIMEOUT_SECONDS,

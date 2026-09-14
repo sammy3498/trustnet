@@ -30,7 +30,7 @@ logger = logging.getLogger(
 router = APIRouter()
 
 NORMAL_MODE_HARD_TIMEOUT_SECONDS = (
-    19.0
+    60.0
 )
 
 
@@ -163,7 +163,7 @@ def run_normal_analysis(
             status_code=504,
             detail=(
                 "TrustNet analysis exceeded "
-                "the 20-second Normal Mode "
+                "the 60-second Normal Mode "
                 "time limit. Please try again."
             ),
         ) from exc

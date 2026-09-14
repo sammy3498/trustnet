@@ -8,7 +8,7 @@ load_dotenv()
 
 
 DEFAULT_LLM_TIMEOUT_SECONDS = 11.0
-MAX_LLM_TIMEOUT_SECONDS = 11.0
+MAX_LLM_TIMEOUT_SECONDS = 55.0
 
 DEFAULT_REASONING_EFFORT = "none"
 DEFAULT_MAX_OUTPUT_TOKENS = 900
@@ -17,6 +17,7 @@ DEFAULT_MAX_OUTPUT_TOKENS = 900
 api_key = os.getenv(
     "LLM_API_KEY"
 )
+
 
 if not api_key:
     raise RuntimeError(

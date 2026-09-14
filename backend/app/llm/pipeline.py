@@ -31,13 +31,13 @@ from backend.app.scoring.uncertainty import (
 
 
 LLM_ANALYSIS_WALL_TIMEOUT_SECONDS = (
-    11.0
+    56.0
 )
 LLM_ANALYSIS_DEADLINE_RESERVE_SECONDS = (
-    0.75
+    1.5
 )
 LLM_API_TIMEOUT_RESERVE_SECONDS = (
-    0.25
+    1.0
 )
 MIN_LLM_ANALYSIS_WINDOW_SECONDS = (
     0.5
