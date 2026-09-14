@@ -16,21 +16,28 @@ from backend.app.llm.client import (
     get_llm_response,
 )
 from backend.app.models.evidence_analysis import (
-    EvidenceAnalysisResponseV4,
+    EvidenceAnalysisResponseV5,
 )
 from backend.app.retrieval.excerpt import (
-    DEFAULT_PASSAGE_MAX_CHARS,
     get_relevant_excerpt,
 )
 
 
 PROMPT_PATH = Path(
-    "prompts/evidence_analysis_v4.txt"
+    "prompts/evidence_analysis_v5.txt"
 )
 
 EVIDENCE_ANALYSIS_SCHEMA = (
-    EvidenceAnalysisResponseV4
+    EvidenceAnalysisResponseV5
     .model_json_schema()
+)
+
+EVIDENCE_ANALYSIS_TIMEOUT_SECONDS = (
+    10.5
+)
+
+NORMAL_MODE_EVIDENCE_MAX_CHARS = (
+    1200
 )
 
 
@@ -40,7 +47,7 @@ def load_evidence_prompt() -> str:
     )
 
 
-def apply_v4_subclaim_consistency(
+def apply_subclaim_consistency(
     analysis: dict,
 ) -> dict:
     subclaims = analysis[
@@ -131,6 +138,26 @@ def apply_v4_subclaim_consistency(
     return analysis
 
 
+def apply_v4_subclaim_consistency(
+    analysis: dict,
+) -> dict:
+    return (
+        apply_subclaim_consistency(
+            analysis
+        )
+    )
+
+
+def apply_v5_subclaim_consistency(
+    analysis: dict,
+) -> dict:
+    return (
+        apply_subclaim_consistency(
+            analysis
+        )
+    )
+
+
 def apply_direction_consistency(
     analysis: dict,
 ) -> dict:
@@ -140,37 +167,15 @@ def apply_direction_consistency(
         ]
     )
 
-    original_score = (
-        analysis[
-            "evidence_strength_score"
-        ]
-    )
-
-    subclaims = (
-        analysis[
-            "subclaim_assessments"
-        ]
-    )
-
     resolved_direction = (
         resolve_overall_evidence_direction(
             subclaim_assessments=(
-                subclaims
+                analysis[
+                    "subclaim_assessments"
+                ]
             ),
             fallback_direction=(
                 original_direction
-            ),
-        )
-    )
-
-    resolved_score = (
-        align_evidence_strength_score(
-            score=original_score,
-            original_direction=(
-                original_direction
-            ),
-            resolved_direction=(
-                resolved_direction
             ),
         )
     )
@@ -180,16 +185,8 @@ def apply_direction_consistency(
     ] = original_direction
 
     analysis[
-        "llm_evidence_strength_score"
-    ] = original_score
-
-    analysis[
         "overall_evidence_direction"
     ] = resolved_direction
-
-    analysis[
-        "evidence_strength_score"
-    ] = resolved_score
 
     analysis[
         "direction_was_resolved"
@@ -197,6 +194,36 @@ def apply_direction_consistency(
         resolved_direction
         != original_direction
     )
+
+    if (
+        "evidence_strength_score"
+        in analysis
+    ):
+        original_score = (
+            analysis[
+                "evidence_strength_score"
+            ]
+        )
+
+        resolved_score = (
+            align_evidence_strength_score(
+                score=original_score,
+                original_direction=(
+                    original_direction
+                ),
+                resolved_direction=(
+                    resolved_direction
+                ),
+            )
+        )
+
+        analysis[
+            "llm_evidence_strength_score"
+        ] = original_score
+
+        analysis[
+            "evidence_strength_score"
+        ] = resolved_score
 
     return analysis
 
@@ -219,21 +246,20 @@ def analyze_evidence_with_llm(
                 text=item.text,
                 query=claim,
                 max_chars=(
-                    DEFAULT_PASSAGE_MAX_CHARS
+                    NORMAL_MODE_EVIDENCE_MAX_CHARS
                 ),
             )
         )
 
         evidence_parts.append(
             f"""
-        Title: {item.title}
-        URL: {item.url}
-        Source: {item.source}
-        Quality: {item.quality}
-        Origin: {item.evidence_origin}
-        Evidence:
-        {excerpt}
-        """
+Title: {item.title}
+URL: {item.url}
+Quality: {item.quality}
+Origin: {item.evidence_origin}
+Evidence:
+{excerpt}
+"""
         )
 
     evidence_text = (
@@ -262,7 +288,10 @@ Evidence:
                 EVIDENCE_ANALYSIS_SCHEMA
             ),
             response_schema_name=(
-                "trustnet_evidence_analysis_v4"
+                "trustnet_evidence_analysis_v5"
+            ),
+            timeout_seconds=(
+                EVIDENCE_ANALYSIS_TIMEOUT_SECONDS
             ),
         )
     )
@@ -280,7 +309,7 @@ Evidence:
 
     try:
         validated = (
-            EvidenceAnalysisResponseV4
+            EvidenceAnalysisResponseV5
             .model_validate(
                 data
             )
@@ -298,7 +327,7 @@ Evidence:
     )
 
     analysis = (
-        apply_v4_subclaim_consistency(
+        apply_v5_subclaim_consistency(
             analysis
         )
     )

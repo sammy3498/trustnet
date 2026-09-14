@@ -21,9 +21,17 @@ SNIPPET_RECOVERY_MAX_SEARCH_RANK = 1
 
 TEMPORAL_QUERY_BONUS_WEIGHT = 3.0
 
+RELIABLE_SCORE_MARGIN = 1.25
+
 RELIABLE_QUALITIES = {
     "high",
     "medium",
+}
+
+QUALITY_PRIORITY = {
+    "high": 0,
+    "medium": 1,
+    "low": 2,
 }
 
 
@@ -76,6 +84,74 @@ def get_temporally_adjusted_score(
     return (
         raw_score
         + temporal_adjustment
+    )
+
+
+def order_candidates_for_reliability(
+    candidates,
+):
+    if not candidates:
+        return []
+
+    best_score = max(
+        item[0]
+        for item in candidates
+    )
+
+    reliable_candidates = [
+        item
+        for item in candidates
+        if (
+            item[2].quality
+            in RELIABLE_QUALITIES
+            and item[0]
+            >= (
+                best_score
+                - RELIABLE_SCORE_MARGIN
+            )
+        )
+    ]
+
+    reliable_candidates.sort(
+        key=lambda item: (
+            QUALITY_PRIORITY.get(
+                item[2].quality,
+                3,
+            ),
+            -item[0],
+            item[1],
+            item[2].url,
+        )
+    )
+
+    reliable_urls = {
+        item[2].url
+        for item
+        in reliable_candidates
+    }
+
+    remaining_candidates = [
+        item
+        for item in candidates
+        if item[2].url
+        not in reliable_urls
+    ]
+
+    remaining_candidates.sort(
+        key=lambda item: (
+            -item[0],
+            QUALITY_PRIORITY.get(
+                item[2].quality,
+                3,
+            ),
+            item[1],
+            item[2].url,
+        )
+    )
+
+    return (
+        reliable_candidates
+        + remaining_candidates
     )
 
 
@@ -165,11 +241,17 @@ def select_query_aware_evidence(
     def try_add_candidates(
         candidates,
     ) -> bool:
+        ordered_candidates = (
+            order_candidates_for_reliability(
+                candidates
+            )
+        )
+
         for (
             _,
             __,
             document,
-        ) in candidates:
+        ) in ordered_candidates:
             if add_document(
                 document,
                 enforce_publisher_diversity=True,
@@ -180,7 +262,7 @@ def select_query_aware_evidence(
             _,
             __,
             document,
-        ) in candidates:
+        ) in ordered_candidates:
             if add_document(
                 document,
                 enforce_publisher_diversity=False,
@@ -261,6 +343,7 @@ def select_query_aware_evidence(
             key=lambda item: (
                 -item[0],
                 item[1],
+                item[2].url,
             )
         )
 
@@ -278,8 +361,16 @@ def select_query_aware_evidence(
             )
 
         elif all_candidates:
+            ordered_candidates = (
+                order_candidates_for_reliability(
+                    all_candidates
+                )
+            )
+
             best_candidate = (
-                all_candidates[0]
+                ordered_candidates[
+                    0
+                ]
             )
 
             (
@@ -324,6 +415,32 @@ def select_query_aware_evidence(
                 :top_k
             ]
 
+    for preferred_quality in (
+        "high",
+        "medium",
+    ):
+        for document in (
+            primary_ranked
+        ):
+            if (
+                len(
+                    selected
+                )
+                >= top_k
+            ):
+                break
+
+            if (
+                document.quality
+                != preferred_quality
+            ):
+                continue
+
+            add_document(
+                document,
+                enforce_publisher_diversity=True,
+            )
+
     for document in (
         primary_ranked
     ):
@@ -339,6 +456,32 @@ def select_query_aware_evidence(
             document,
             enforce_publisher_diversity=True,
         )
+
+    for preferred_quality in (
+        "high",
+        "medium",
+    ):
+        for document in (
+            fallback_ranked
+        ):
+            if (
+                len(
+                    selected
+                )
+                >= top_k
+            ):
+                break
+
+            if (
+                document.quality
+                != preferred_quality
+            ):
+                continue
+
+            add_document(
+                document,
+                enforce_publisher_diversity=True,
+            )
 
     for document in (
         fallback_ranked

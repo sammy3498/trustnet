@@ -1,4 +1,8 @@
 import logging
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FuturesTimeoutError,
+)
 
 from fastapi import (
     APIRouter,
@@ -23,6 +27,10 @@ logger = logging.getLogger(
 )
 
 router = APIRouter()
+
+NORMAL_MODE_HARD_TIMEOUT_SECONDS = (
+    19.0
+)
 
 
 def derive_confidence(
@@ -112,6 +120,54 @@ def build_public_evidence(
     return public_evidence
 
 
+def run_normal_analysis(
+    claim: str,
+) -> dict:
+    executor = (
+        ThreadPoolExecutor(
+            max_workers=1
+        )
+    )
+
+    future = executor.submit(
+        analyze_claim,
+        claim=claim,
+        search_results=5,
+        top_k=3,
+    )
+
+    try:
+        return future.result(
+            timeout=(
+                NORMAL_MODE_HARD_TIMEOUT_SECONDS
+            )
+        )
+
+    except FuturesTimeoutError as exc:
+        future.cancel()
+
+        logger.error(
+            "TrustNet Normal Mode exceeded "
+            "%.1f-second hard timeout.",
+            NORMAL_MODE_HARD_TIMEOUT_SECONDS,
+        )
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "TrustNet analysis exceeded "
+                "the 20-second Normal Mode "
+                "time limit. Please try again."
+            ),
+        ) from exc
+
+    finally:
+        executor.shutdown(
+            wait=False,
+            cancel_futures=True,
+        )
+
+
 @router.post(
     "/analyze",
     response_model=AnalysisResponse,
@@ -127,7 +183,7 @@ def analyze(
             status_code=501,
             detail=(
                 "Only claim input is currently "
-                "supported by the Phase 2 MVP."
+                "supported."
             ),
         )
 
@@ -140,11 +196,14 @@ def analyze(
         )
 
     try:
-        result = analyze_claim(
-            claim=request.input,
-            search_results=5,
-            top_k=3,
+        result = (
+            run_normal_analysis(
+                request.input
+            )
         )
+
+    except HTTPException:
+        raise
 
     except Exception as exc:
         logger.exception(

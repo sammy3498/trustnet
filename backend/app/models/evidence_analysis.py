@@ -6,6 +6,10 @@ from pydantic import (
     Field,
 )
 
+from backend.app.models.credibility_assessment import (
+    BiasFramingAssessment,
+    IncentiveConflictAssessment,
+)
 from backend.app.models.schemas import (
     LLMFactorBreakdown,
 )
@@ -211,6 +215,46 @@ class EvidenceAnalysisResponseV4(
     )
 
     summary: str
+
+
+class EvidenceAnalysisResponseV5(
+    BaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid"
+    )
+
+    claim: str
+
+    evidence_assessments: list[
+        EvidenceAssessmentV4
+    ]
+
+    subclaim_assessments: list[
+        SubclaimAssessmentV4
+    ] = Field(
+        min_length=1
+    )
+
+    overall_evidence_direction: (
+        EvidenceDirection
+    )
+
+    summary: str
+
+    bias_framing: (
+        BiasFramingAssessment
+    )
+
+    bias_framing_justification: str
+
+    incentive_conflict: (
+        IncentiveConflictAssessment
+    )
+
+    incentive_conflict_justification: str
+
+    material_caveats: list[str]
 
 
 class UnifiedAnalysisResponse(
