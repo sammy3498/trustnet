@@ -1,4 +1,5 @@
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from backend.app.evidence.fast_path import (
     is_simple_atomic_claim,
@@ -87,17 +88,15 @@ def build_compound_recovery_context(
     return context
 
 
-def resolve_atomic_subclaim(
+def run_fast_probe(
     subclaim: str,
     evidence: list[
         RetrievedEvidence
     ],
-    end_date: str | None = None,
-    deadline: float | None = None,
-) -> dict:
-    fast_path_ms = 0
-    authority_recovery_ms = 0
-
+) -> tuple[
+    dict | None,
+    int,
+]:
     probe_start = (
         time.perf_counter()
     )
@@ -109,7 +108,7 @@ def resolve_atomic_subclaim(
         )
     )
 
-    fast_path_ms += round(
+    elapsed_ms = round(
         (
             time.perf_counter()
             - probe_start
@@ -117,20 +116,22 @@ def resolve_atomic_subclaim(
         * 1000
     )
 
-    if analysis is not None:
-        return {
-            "analysis": analysis,
-            "recovered_evidence": [],
-            "fast_path_ms": (
-                fast_path_ms
-            ),
-            "authority_recovery_ms": 0,
-        }
-
-    recovery_start = (
-        time.perf_counter()
+    return (
+        analysis,
+        elapsed_ms,
     )
 
+
+def recover_atomic_subclaim_evidence(
+    subclaim: str,
+    evidence: list[
+        RetrievedEvidence
+    ],
+    end_date: str | None = None,
+    deadline: float | None = None,
+) -> list[
+    RetrievedEvidence
+]:
     recovery_context = (
         build_compound_recovery_context(
             evidence
@@ -148,15 +149,7 @@ def resolve_atomic_subclaim(
         )
     )
 
-    authority_recovery_ms += round(
-        (
-            time.perf_counter()
-            - recovery_start
-        )
-        * 1000
-    )
-
-    recovered = (
+    return (
         append_unique_evidence(
             evidence=evidence,
             additions=(
@@ -165,56 +158,115 @@ def resolve_atomic_subclaim(
         )
     )
 
+
+def finish_atomic_subclaim_probe(
+    subclaim: str,
+    evidence: list[
+        RetrievedEvidence
+    ],
+    recovered: list[
+        RetrievedEvidence
+    ],
+) -> tuple[
+    dict | None,
+    int,
+]:
     if not recovered:
+        return (
+            None,
+            0,
+        )
+
+    (
+        analysis,
+        fast_path_ms,
+    ) = run_fast_probe(
+        subclaim=subclaim,
+        evidence=recovered,
+    )
+
+    if analysis is not None:
+        return (
+            analysis,
+            fast_path_ms,
+        )
+
+    (
+        analysis,
+        combined_probe_ms,
+    ) = run_fast_probe(
+        subclaim=subclaim,
+        evidence=evidence,
+    )
+
+    return (
+        analysis,
+        (
+            fast_path_ms
+            + combined_probe_ms
+        ),
+    )
+
+
+def resolve_atomic_subclaim(
+    subclaim: str,
+    evidence: list[
+        RetrievedEvidence
+    ],
+    end_date: str | None = None,
+    deadline: float | None = None,
+) -> dict:
+    (
+        analysis,
+        fast_path_ms,
+    ) = run_fast_probe(
+        subclaim=subclaim,
+        evidence=evidence,
+    )
+
+    if analysis is not None:
         return {
-            "analysis": None,
+            "analysis": analysis,
             "recovered_evidence": [],
             "fast_path_ms": (
                 fast_path_ms
             ),
-            "authority_recovery_ms": (
-                authority_recovery_ms
-            ),
+            "authority_recovery_ms": 0,
         }
 
-    probe_start = (
+    recovery_start = (
         time.perf_counter()
     )
 
-    analysis = (
-        try_fast_evidence_analysis(
-            claim=subclaim,
-            evidence=recovered,
+    recovered = (
+        recover_atomic_subclaim_evidence(
+            subclaim=subclaim,
+            evidence=evidence,
+            end_date=end_date,
+            deadline=deadline,
         )
     )
 
-    fast_path_ms += round(
+    authority_recovery_ms = round(
         (
             time.perf_counter()
-            - probe_start
+            - recovery_start
         )
         * 1000
     )
 
-    if analysis is None:
-        probe_start = (
-            time.perf_counter()
-        )
+    (
+        analysis,
+        final_probe_ms,
+    ) = finish_atomic_subclaim_probe(
+        subclaim=subclaim,
+        evidence=evidence,
+        recovered=recovered,
+    )
 
-        analysis = (
-            try_fast_evidence_analysis(
-                claim=subclaim,
-                evidence=evidence,
-            )
-        )
-
-        fast_path_ms += round(
-            (
-                time.perf_counter()
-                - probe_start
-            )
-            * 1000
-        )
+    fast_path_ms += (
+        final_probe_ms
+    )
 
     return {
         "analysis": analysis,
@@ -228,7 +280,6 @@ def resolve_atomic_subclaim(
             authority_recovery_ms
         ),
     }
-
 
 def get_subclaim_assessment(
     subclaim: str,
@@ -570,45 +621,108 @@ def try_compound_fast_evidence_analysis(
             "authority_recovery_ms": 0,
         }
 
-    all_recovered = []
-
-    analyses = []
+    states = []
 
     fast_path_ms = 0
-
-    authority_recovery_ms = 0
 
     for subclaim in subclaims:
         subclaim_evidence = list(
             evidence
         )
 
-        result = (
-            resolve_atomic_subclaim(
-                subclaim=subclaim,
-                evidence=(
+        (
+            analysis,
+            probe_ms,
+        ) = run_fast_probe(
+            subclaim=subclaim,
+            evidence=(
+                subclaim_evidence
+            ),
+        )
+
+        fast_path_ms += (
+            probe_ms
+        )
+
+        states.append(
+            {
+                "subclaim": subclaim,
+                "evidence": (
                     subclaim_evidence
                 ),
-                end_date=end_date,
-                deadline=deadline,
+                "analysis": analysis,
+                "recovered": [],
+            }
+        )
+
+    unresolved = [
+        state
+        for state in states
+        if state[
+            "analysis"
+        ] is None
+    ]
+
+    authority_recovery_ms = 0
+
+    if unresolved:
+        recovery_start = (
+            time.perf_counter()
+        )
+
+        with ThreadPoolExecutor(
+            max_workers=min(
+                2,
+                len(
+                    unresolved
+                ),
             )
-        )
-
-        fast_path_ms += int(
-            result[
-                "fast_path_ms"
+        ) as executor:
+            futures = [
+                executor.submit(
+                    recover_atomic_subclaim_evidence,
+                    state[
+                        "subclaim"
+                    ],
+                    state[
+                        "evidence"
+                    ],
+                    end_date,
+                    deadline,
+                )
+                for state in unresolved
             ]
+
+            for state, future in zip(
+                unresolved,
+                futures,
+            ):
+                state[
+                    "recovered"
+                ] = future.result()
+
+        authority_recovery_ms = round(
+            (
+                time.perf_counter()
+                - recovery_start
+            )
+            * 1000
         )
 
-        authority_recovery_ms += int(
-            result[
-                "authority_recovery_ms"
+    all_recovered = []
+
+    analyses = []
+
+    for state in states:
+        analysis = (
+            state[
+                "analysis"
             ]
         )
 
         recovered = (
-            result[
-                "recovered_evidence"
+            state[
+                "recovered"
             ]
         )
 
@@ -617,11 +731,31 @@ def try_compound_fast_evidence_analysis(
             additions=recovered,
         )
 
-        analysis = (
-            result[
-                "analysis"
-            ]
-        )
+        if analysis is None:
+            (
+                analysis,
+                probe_ms,
+            ) = (
+                finish_atomic_subclaim_probe(
+                    subclaim=(
+                        state[
+                            "subclaim"
+                        ]
+                    ),
+                    evidence=(
+                        state[
+                            "evidence"
+                        ]
+                    ),
+                    recovered=(
+                        recovered
+                    ),
+                )
+            )
+
+            fast_path_ms += (
+                probe_ms
+            )
 
         if analysis is None:
             return {
@@ -661,3 +795,4 @@ def try_compound_fast_evidence_analysis(
             authority_recovery_ms
         ),
     }
+
