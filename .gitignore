@@ -203,6 +203,8 @@ extension/build/
 
 # TrustNet generated data
 datasets/raw/
+eval/datasets/
+eval/snapshots/
 eval/results/
 vector_store/
 *.faiss
