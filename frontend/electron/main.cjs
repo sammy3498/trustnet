@@ -474,7 +474,9 @@ function readLegacyConfig() {
 
     tavilyApiKey:
       String(
-        values.TAVILY_API_KEY ?? '',
+        values.SEARCH_API_KEY
+        ?? values.TAVILY_API_KEY
+        ?? '',
       ).trim(),
 
     llmModel:
@@ -908,7 +910,7 @@ function startPackagedBackend() {
     childEnvironment.LLM_API_KEY =
       secureConfig.llmApiKey
 
-    childEnvironment.TAVILY_API_KEY =
+    childEnvironment.SEARCH_API_KEY =
       secureConfig.tavilyApiKey
 
     childEnvironment.LLM_MODEL =
@@ -922,9 +924,20 @@ function startPackagedBackend() {
   } else if (
     hasLegacyConfig()
   ) {
-    childEnvironment
-      .TRUSTNET_ENV_FILE =
-        getLegacyEnvPath()
+    const legacyConfig =
+      readLegacyConfig()
+
+    childEnvironment.LLM_API_KEY =
+      legacyConfig.llmApiKey
+
+    childEnvironment.SEARCH_API_KEY =
+      legacyConfig.tavilyApiKey
+
+    childEnvironment.LLM_MODEL =
+      legacyConfig.llmModel
+
+    delete childEnvironment
+      .TRUSTNET_ENV_FILE
 
     configurationSource =
       'legacy'

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+
+    <title>TrustNet</title>
+
+    <link
+      rel="stylesheet"
+      href="popup.css"
+    />
+  </head>
+
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <img
+            src="icons/trustnet.png"
+            alt=""
+            class="brand-icon"
+          />
+
+          <div>
+            <h1>TrustNet</h1>
+
+            <p>
+              Credibility analysis
+            </p>
+          </div>
+        </div>
+
+        <div
+          id="backendStatus"
+          class="status starting"
+        >
+          <span class="status-dot"></span>
+          <span id="statusText">
+            Checking...
+          </span>
+        </div>
+      </header>
+
+      <main>
+        <section class="claim-section">
+          <div class="section-heading">
+            <span>
+              Selected claim
+            </span>
+
+            <span
+              id="characterCount"
+              class="character-count"
+            >
+              0
+            </span>
+          </div>
+
+          <textarea
+            id="claimInput"
+            placeholder="Select text on a webpage or enter a factual claim here."
+            rows="6"
+          ></textarea>
+
+          <button
+            id="analyzeButton"
+            type="button"
+            disabled
+          >
+            Analyze credibility
+          </button>
+
+          <p
+            id="selectionMessage"
+            class="selection-message"
+          ></p>
+        </section>
+
+        <section
+          id="loadingSection"
+          class="loading-card hidden"
+        >
+          <div class="spinner"></div>
+
+          <div>
+            <strong>
+              Analyzing evidence
+            </strong>
+
+            <p>
+              TrustNet is retrieving and
+              evaluating sources.
+            </p>
+          </div>
+        </section>
+
+        <section
+          id="errorSection"
+          class="error-card hidden"
+        >
+          <strong>
+            Analysis failed
+          </strong>
+
+          <p id="errorText"></p>
+        </section>
+
+        <section
+          id="resultSection"
+          class="results hidden"
+        >
+          <div class="result-summary">
+            <div>
+              <span class="result-eyebrow">
+                Credibility result
+              </span>
+
+              <h2 id="resultLabel">
+                —
+              </h2>
+
+              <p id="resultClaim"></p>
+            </div>
+
+            <div
+              id="scoreCircle"
+              class="score-circle"
+            >
+              <strong id="scoreValue">
+                —
+              </strong>
+
+              <span>
+                /100
+              </span>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <div class="summary-item">
+              <span>
+                Confidence
+              </span>
+
+              <strong
+                id="confidenceValue"
+              >
+                —
+              </strong>
+            </div>
+
+            <div class="summary-item">
+              <span>
+                Sources
+              </span>
+
+              <strong
+                id="sourceCount"
+              >
+                —
+              </strong>
+            </div>
+          </div>
+
+          <div
+            id="uncertaintyBox"
+            class="uncertainty hidden"
+          >
+            <strong>
+              Insufficient evidence
+            </strong>
+
+            <span
+              id="uncertaintyReason"
+            ></span>
+          </div>
+
+          <section class="result-block">
+            <div class="result-block-heading">
+              Factor breakdown
+            </div>
+
+            <div
+              id="factorList"
+              class="factor-list"
+            ></div>
+          </section>
+
+          <section class="result-block">
+            <div class="result-block-heading">
+              Evidence
+            </div>
+
+            <div
+              id="evidenceList"
+              class="evidence-list"
+            ></div>
+          </section>
+        </section>
+      </main>
+
+      <footer>
+        TrustNet desktop app must be
+        running for analysis.
+      </footer>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "TrustNet",
+  "version": "0.1.0",
+  "description": "Analyze selected factual claims using the TrustNet evidence-first credibility analysis system.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "TrustNet",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/trustnet.png",
+      "32": "icons/trustnet.png",
+      "48": "icons/trustnet.png",
+      "128": "icons/trustnet.png"
+    }
+  },
+  "icons": {
+    "16": "icons/trustnet.png",
+    "32": "icons/trustnet.png",
+    "48": "icons/trustnet.png",
+    "128": "icons/trustnet.png"
+  }
+}

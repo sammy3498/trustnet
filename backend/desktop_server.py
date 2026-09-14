@@ -12,15 +12,32 @@ ROOT_DIR = (
     .parent
 )
 
-root_path = str(
-    ROOT_DIR
+if getattr(
+    sys,
+    "frozen",
+    False,
+):
+    RUNTIME_DIR = Path(
+        sys._MEIPASS
+    )
+else:
+    RUNTIME_DIR = ROOT_DIR
+
+
+runtime_path = str(
+    RUNTIME_DIR
 )
 
-if root_path not in sys.path:
+if runtime_path not in sys.path:
     sys.path.insert(
         0,
-        root_path,
+        runtime_path,
     )
+
+
+os.chdir(
+    RUNTIME_DIR
+)
 
 
 env_file = os.getenv(
