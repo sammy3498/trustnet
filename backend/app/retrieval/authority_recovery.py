@@ -38,7 +38,7 @@ logger = logging.getLogger(
 AUTHORITY_RECOVERY_MAX_RESULTS = 8
 AUTHORITY_RECOVERY_MAX_EVIDENCE = 3
 
-AUTHORITY_SEARCH_TIMEOUT_SECONDS = 3.0
+AUTHORITY_SEARCH_TIMEOUT_SECONDS = 4.0
 AUTHORITY_FETCH_TIMEOUT_SECONDS = 7.0
 
 AUTHORITY_RECOVERY_DEADLINE_RESERVE_SECONDS = (
@@ -218,6 +218,17 @@ def get_evidence_publisher(
     return evidence.url
 
 
+def is_existing_reliable_webpage(
+    evidence: RetrievedEvidence,
+) -> bool:
+    return (
+        evidence.evidence_origin
+        == "webpage"
+        and evidence.quality
+        in RELIABLE_QUALITIES
+    )
+
+
 def get_remaining_recovery_time(
     deadline: float | None,
 ) -> float | None:
@@ -379,6 +390,9 @@ def select_authority_fetch_candidates(
             item
         )
         for item in existing_evidence
+        if is_existing_reliable_webpage(
+            item
+        )
     }
 
     candidates = []

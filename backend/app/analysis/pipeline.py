@@ -6,6 +6,9 @@ from backend.app.analysis.cache import (
     get_cached_analysis,
     set_cached_analysis,
 )
+from backend.app.evidence.compound_fast_path import (
+    try_compound_fast_evidence_analysis,
+)
 from backend.app.evidence.fast_path import (
     is_simple_atomic_claim,
     try_fast_evidence_analysis,
@@ -15,6 +18,7 @@ from backend.app.llm.claim_preparation import (
 )
 from backend.app.llm.pipeline import (
     analyze_claim_with_llm,
+    score_evidence_analysis,
 )
 from backend.app.retrieval.authority_recovery import (
     recover_authority_evidence,
@@ -22,6 +26,28 @@ from backend.app.retrieval.authority_recovery import (
 from backend.app.retrieval.search_pipeline import (
     search_and_retrieve,
 )
+
+
+def append_unique_evidence(
+    evidence,
+    additions,
+):
+    existing_urls = {
+        item.url
+        for item in evidence
+    }
+
+    for item in additions:
+        if item.url in existing_urls:
+            continue
+
+        evidence.append(
+            item
+        )
+
+        existing_urls.add(
+            item.url
+        )
 
 
 def build_cache_hit_result(
@@ -377,7 +403,65 @@ def analyze_claim(
 
     authority_recovery_ms = 0
 
-    if is_simple_atomic_claim(
+    compound_analysis = None
+
+    compound_fast_eligible = (
+        len(
+            verification_queries
+        )
+        >= 2
+        and all(
+            is_simple_atomic_claim(
+                item
+            )
+            for item
+            in verification_queries
+        )
+    )
+
+    if compound_fast_eligible:
+        compound_result = (
+            try_compound_fast_evidence_analysis(
+                claim=normalized_claim,
+                subclaims=(
+                    verification_queries
+                ),
+                evidence=evidence,
+                end_date=(
+                    retrieval_end_date
+                ),
+                deadline=deadline,
+            )
+        )
+
+        fast_path_probe_ms += int(
+            compound_result[
+                "fast_path_ms"
+            ]
+        )
+
+        authority_recovery_ms += int(
+            compound_result[
+                "authority_recovery_ms"
+            ]
+        )
+
+        append_unique_evidence(
+            evidence=evidence,
+            additions=(
+                compound_result[
+                    "recovered_evidence"
+                ]
+            ),
+        )
+
+        compound_analysis = (
+            compound_result[
+                "analysis"
+            ]
+        )
+
+    elif is_simple_atomic_claim(
         normalized_claim
     ):
         probe_start = (
@@ -428,34 +512,41 @@ def analyze_claim(
                 * 1000
             )
 
-            if recovered_evidence:
-                existing_urls = {
-                    item.url
-                    for item in evidence
-                }
-
-                for item in (
+            append_unique_evidence(
+                evidence=evidence,
+                additions=(
                     recovered_evidence
-                ):
-                    if (
-                        item.url
-                        in existing_urls
-                    ):
-                        continue
-
-                    evidence.append(
-                        item
-                    )
-
-                    existing_urls.add(
-                        item.url
-                    )
+                ),
+            )
 
     analysis_start = (
         time.perf_counter()
     )
 
-    if deadline is None:
+    if compound_analysis is not None:
+        result = (
+            score_evidence_analysis(
+                claim=normalized_claim,
+                evidence=evidence,
+                evidence_analysis=(
+                    compound_analysis
+                ),
+                evidence_analysis_ms=(
+                    fast_path_probe_ms
+                ),
+                analysis_path=(
+                    "local_nli_compound"
+                ),
+                fast_path_ms=(
+                    fast_path_probe_ms
+                ),
+                conflicting_evidence_override=(
+                    False
+                ),
+            )
+        )
+
+    elif deadline is None:
         result = (
             analyze_claim_with_llm(
                 claim=normalized_claim,

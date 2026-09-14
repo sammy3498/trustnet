@@ -311,6 +311,18 @@ def calibrate_factual_consistency(
         "insufficient" in statuses
     )
 
+    compound_operator = (
+        evidence_analysis.get(
+            "_compound_operator"
+        )
+    )
+
+    if (
+        compound_operator == "and"
+        and has_contradiction
+    ):
+        return 5
+
     if (
         has_mixed
         or (

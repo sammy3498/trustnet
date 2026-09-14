@@ -12,6 +12,9 @@ from backend.app.evidence.conflict import (
 from backend.app.evidence.domain import (
     get_publisher_domain,
 )
+from backend.app.evidence.fast_path import (
+    try_fast_evidence_analysis,
+)
 from backend.app.evidence.models import (
     RetrievedEvidence,
 )
@@ -33,12 +36,15 @@ from backend.app.scoring.uncertainty import (
 LLM_ANALYSIS_WALL_TIMEOUT_SECONDS = (
     56.0
 )
+
 LLM_ANALYSIS_DEADLINE_RESERVE_SECONDS = (
     1.5
 )
+
 LLM_API_TIMEOUT_RESERVE_SECONDS = (
     1.0
 )
+
 MIN_LLM_ANALYSIS_WINDOW_SECONDS = (
     0.5
 )
@@ -117,6 +123,9 @@ def build_evidence_timeout_result(
             "summary": reason,
         },
         "analysis_degraded": True,
+        "analysis_path": (
+            "terra_timeout"
+        ),
     }
 
 
@@ -162,103 +171,22 @@ def run_evidence_analysis(
     )
 
 
-def analyze_claim_with_llm(
+def score_evidence_analysis(
     claim: str,
     evidence: list[
         RetrievedEvidence
     ],
-    deadline: float | None = None,
+    evidence_analysis: dict,
+    evidence_analysis_ms: int,
+    analysis_path: str,
+    fast_path_ms: int = 0,
+    conflicting_evidence_override: (
+        bool | None
+    ) = None,
 ) -> dict:
-    stage_start = (
+    scoring_start = (
         time.perf_counter()
     )
-
-    wall_timeout_seconds = (
-        resolve_llm_wall_timeout(
-            deadline
-        )
-    )
-
-    if (
-        wall_timeout_seconds
-        < MIN_LLM_ANALYSIS_WINDOW_SECONDS
-    ):
-        elapsed_ms = round(
-            (
-                time.perf_counter()
-                - stage_start
-            )
-            * 1000
-        )
-
-        return (
-            build_evidence_timeout_result(
-                claim=claim,
-                evidence_analysis_ms=(
-                    elapsed_ms
-                ),
-            )
-        )
-
-    api_timeout_seconds = None
-
-    if deadline is not None:
-        api_timeout_seconds = (
-            resolve_llm_api_timeout(
-                wall_timeout_seconds
-            )
-        )
-
-    executor = ThreadPoolExecutor(
-        max_workers=1
-    )
-
-    future = executor.submit(
-        run_evidence_analysis,
-        claim,
-        evidence,
-        api_timeout_seconds,
-    )
-
-    try:
-        try:
-            (
-                evidence_analysis,
-                evidence_analysis_ms,
-            ) = future.result(
-                timeout=(
-                    wall_timeout_seconds
-                )
-            )
-
-        except (
-            FuturesTimeoutError,
-            APITimeoutError,
-        ):
-            future.cancel()
-
-            elapsed_ms = round(
-                (
-                    time.perf_counter()
-                    - stage_start
-                )
-                * 1000
-            )
-
-            return (
-                build_evidence_timeout_result(
-                    claim=claim,
-                    evidence_analysis_ms=(
-                        elapsed_ms
-                    ),
-                )
-            )
-
-    finally:
-        executor.shutdown(
-            wait=False,
-            cancel_futures=True,
-        )
 
     credibility_assessment = {
         "bias_framing": (
@@ -330,53 +258,90 @@ def analyze_claim_with_llm(
         )
     )
 
-    evidence_count = len(
-        evidence
-    )
-
-    high_quality_sources = {
-        get_publisher_domain(
-            item.source
+    fast_metadata = (
+        evidence_analysis.get(
+            "_fast_path"
         )
-        for item in evidence
-        if item.quality == "high"
-    }
+    )
 
-    medium_quality_sources = {
-        get_publisher_domain(
-            item.source
+    if fast_metadata:
+        evidence_count = int(
+            fast_metadata[
+                "effective_evidence_count"
+            ]
         )
-        for item in evidence
-        if item.quality == "medium"
-    }
 
-    high_quality_count = len(
-        high_quality_sources
-    )
+        high_quality_count = int(
+            fast_metadata[
+                "effective_high_quality_count"
+            ]
+        )
 
-    medium_quality_count = len(
-        medium_quality_sources
-    )
+        medium_quality_count = int(
+            fast_metadata[
+                "effective_medium_quality_count"
+            ]
+        )
 
-    reliable_urls = {
-        item.url
-        for item in evidence
-        if item.quality in {
-            "high",
-            "medium",
+    else:
+        evidence_count = len(
+            evidence
+        )
+
+        high_quality_sources = {
+            get_publisher_domain(
+                item.source
+            )
+            for item in evidence
+            if item.quality
+            == "high"
         }
-    }
 
-    conflicting_evidence = (
-        detect_conflicting_evidence(
-            evidence_analysis[
-                "evidence_assessments"
-            ],
-            reliable_urls=(
-                reliable_urls
-            ),
+        medium_quality_sources = {
+            get_publisher_domain(
+                item.source
+            )
+            for item in evidence
+            if item.quality
+            == "medium"
+        }
+
+        high_quality_count = len(
+            high_quality_sources
         )
-    )
+
+        medium_quality_count = len(
+            medium_quality_sources
+        )
+
+    if (
+        conflicting_evidence_override
+        is None
+    ):
+        reliable_urls = {
+            item.url
+            for item in evidence
+            if item.quality in {
+                "high",
+                "medium",
+            }
+        }
+
+        conflicting_evidence = (
+            detect_conflicting_evidence(
+                evidence_analysis[
+                    "evidence_assessments"
+                ],
+                reliable_urls=(
+                    reliable_urls
+                ),
+            )
+        )
+
+    else:
+        conflicting_evidence = (
+            conflicting_evidence_override
+        )
 
     evidence_direction = (
         evidence_analysis.get(
@@ -414,12 +379,25 @@ def analyze_claim_with_llm(
         ),
     )
 
+    scoring_ms = round(
+        (
+            time.perf_counter()
+            - scoring_start
+        )
+        * 1000
+    )
+
     return {
         "llm_timings": {
             "evidence_analysis_ms": (
                 evidence_analysis_ms
             ),
-            "credibility_scoring_ms": 0,
+            "credibility_scoring_ms": (
+                scoring_ms
+            ),
+            "fast_path_ms": (
+                fast_path_ms
+            ),
         },
         "claim": claim,
         "overall_score": (
@@ -447,4 +425,162 @@ def analyze_claim_with_llm(
             evidence_analysis
         ),
         "analysis_degraded": False,
+        "analysis_path": (
+            analysis_path
+        ),
     }
+
+
+def analyze_claim_with_llm(
+    claim: str,
+    evidence: list[
+        RetrievedEvidence
+    ],
+    deadline: float | None = None,
+) -> dict:
+    stage_start = (
+        time.perf_counter()
+    )
+
+    fast_path_start = (
+        time.perf_counter()
+    )
+
+    fast_analysis = (
+        try_fast_evidence_analysis(
+            claim=claim,
+            evidence=evidence,
+        )
+    )
+
+    fast_path_ms = round(
+        (
+            time.perf_counter()
+            - fast_path_start
+        )
+        * 1000
+    )
+
+    analysis_path = (
+        "local_nli_fast"
+        if fast_analysis
+        is not None
+        else "terra"
+    )
+
+    if fast_analysis is not None:
+        evidence_analysis = (
+            fast_analysis
+        )
+
+        evidence_analysis_ms = (
+            fast_path_ms
+        )
+
+    else:
+        wall_timeout_seconds = (
+            resolve_llm_wall_timeout(
+                deadline
+            )
+        )
+
+        if (
+            wall_timeout_seconds
+            < MIN_LLM_ANALYSIS_WINDOW_SECONDS
+        ):
+            elapsed_ms = round(
+                (
+                    time.perf_counter()
+                    - stage_start
+                )
+                * 1000
+            )
+
+            return (
+                build_evidence_timeout_result(
+                    claim=claim,
+                    evidence_analysis_ms=(
+                        elapsed_ms
+                    ),
+                )
+            )
+
+        api_timeout_seconds = None
+
+        if deadline is not None:
+            api_timeout_seconds = (
+                resolve_llm_api_timeout(
+                    wall_timeout_seconds
+                )
+            )
+
+        executor = (
+            ThreadPoolExecutor(
+                max_workers=1
+            )
+        )
+
+        future = executor.submit(
+            run_evidence_analysis,
+            claim,
+            evidence,
+            api_timeout_seconds,
+        )
+
+        try:
+            try:
+                (
+                    evidence_analysis,
+                    terra_analysis_ms,
+                ) = future.result(
+                    timeout=(
+                        wall_timeout_seconds
+                    )
+                )
+
+                evidence_analysis_ms = (
+                    fast_path_ms
+                    + terra_analysis_ms
+                )
+
+            except (
+                FuturesTimeoutError,
+                APITimeoutError,
+            ):
+                future.cancel()
+
+                elapsed_ms = round(
+                    (
+                        time.perf_counter()
+                        - stage_start
+                    )
+                    * 1000
+                )
+
+                return (
+                    build_evidence_timeout_result(
+                        claim=claim,
+                        evidence_analysis_ms=(
+                            elapsed_ms
+                        ),
+                    )
+                )
+
+        finally:
+            executor.shutdown(
+                wait=False,
+                cancel_futures=True,
+            )
+
+    return score_evidence_analysis(
+        claim=claim,
+        evidence=evidence,
+        evidence_analysis=(
+            evidence_analysis
+        ),
+        evidence_analysis_ms=(
+            evidence_analysis_ms
+        ),
+        analysis_path=analysis_path,
+        fast_path_ms=fast_path_ms,
+    )

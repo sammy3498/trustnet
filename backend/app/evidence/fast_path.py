@@ -49,6 +49,31 @@ QUALITY_PRIORITY = {
 }
 
 
+CARDINALITY_WORDS = {
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+}
+
+
 COMPLEX_CLAIM_MARKERS = (
     " and ",
     " or ",
@@ -179,6 +204,61 @@ def get_content_terms(
     return terms
 
 
+def get_claim_cardinality_words(
+    claim: str,
+) -> set[str]:
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        claim.strip().lower(),
+    )
+
+    matches = re.findall(
+        (
+            r"\b(?:has|have|had)\s+"
+            r"(?:(?:exactly|only)\s+)?"
+            r"([A-Za-z]+)\s+"
+            r"[A-Za-z]+\b"
+        ),
+        normalized,
+    )
+
+    return {
+        word
+        for word in matches
+        if word in CARDINALITY_WORDS
+    }
+
+
+def has_non_exhaustive_cardinality_phrase(
+    claim: str,
+    sentence: str,
+) -> bool:
+    cardinality_words = (
+        get_claim_cardinality_words(
+            claim
+        )
+    )
+
+    if not cardinality_words:
+        return False
+
+    normalized_sentence = re.sub(
+        r"\s+",
+        " ",
+        sentence.strip().lower(),
+    )
+
+    for word in CARDINALITY_WORDS:
+        if re.search(
+            rf"\b{re.escape(word)}\s+of\b",
+            normalized_sentence,
+        ):
+            return True
+
+    return False
+
+
 def has_enough_term_overlap(
     claim: str,
     sentence: str,
@@ -187,6 +267,17 @@ def has_enough_term_overlap(
         get_content_terms(
             claim
         )
+    )
+
+    cardinality_words = (
+        get_claim_cardinality_words(
+            claim
+        )
+    )
+
+    claim_terms = (
+        claim_terms
+        - cardinality_words
     )
 
     sentence_terms = (
@@ -263,8 +354,8 @@ def is_simple_atomic_claim(
         for symbol in (
             "%",
             "$",
-            "€",
-            "₹",
+            "â‚¬",
+            "â‚¹",
             ";",
             ":",
             "\n",
@@ -432,9 +523,17 @@ def score_evidence_sentences(
             sentence
             for sentence
             in sentences
-            if has_enough_term_overlap(
-                claim,
-                sentence,
+            if (
+                has_enough_term_overlap(
+                    claim,
+                    sentence,
+                )
+                and not (
+                    has_non_exhaustive_cardinality_phrase(
+                        claim,
+                        sentence,
+                    )
+                )
             )
         ]
 
