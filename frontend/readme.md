@@ -1,16 +1,51 @@
-# React + Vite
+# TrustNet Browser Extension
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The TrustNet browser extension provides a lightweight way to analyze factual claims directly from webpages.
 
-Currently, two official plugins are available:
+It is a Chrome/Edge Manifest V3 extension that communicates with the TrustNet desktop application's local FastAPI backend.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Current extension version: **0.1.0**
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 1. Purpose
 
-## Expanding the ESLint configuration
+The extension allows a user to:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- select a factual claim on a webpage,
+- open the TrustNet extension,
+- automatically load the selected text,
+- send the claim to the local TrustNet backend,
+- view the resulting credibility assessment.
+
+The extension does not perform credibility analysis itself.
+
+All retrieval, evidence analysis, scoring, and uncertainty handling are performed by the TrustNet backend.
+
+---
+
+## 2. Architecture
+
+```text
+Webpage
+   |
+   v
+Selected Claim
+   |
+   v
+TrustNet Extension Popup
+   |
+   v
+Manifest V3 Service Worker
+   |
+   v
+http://127.0.0.1:8000
+   |
+   v
+TrustNet Backend
+   |
+   v
+Credibility Result
+   |
+   v
+Extension Popup
