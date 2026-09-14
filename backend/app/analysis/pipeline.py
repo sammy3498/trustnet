@@ -6,11 +6,18 @@ from backend.app.analysis.cache import (
     get_cached_analysis,
     set_cached_analysis,
 )
+from backend.app.evidence.fast_path import (
+    is_simple_atomic_claim,
+    try_fast_evidence_analysis,
+)
 from backend.app.llm.claim_preparation import (
     prepare_claim,
 )
 from backend.app.llm.pipeline import (
     analyze_claim_with_llm,
+)
+from backend.app.retrieval.authority_recovery import (
+    recover_authority_evidence,
 )
 from backend.app.retrieval.search_pipeline import (
     search_and_retrieve,
@@ -29,6 +36,8 @@ def build_cache_hit_result(
     cached_result["timings"] = {
         "claim_preparation_ms": 0,
         "retrieval_ms": 0,
+        "authority_recovery_ms": 0,
+        "fast_path_probe_ms": 0,
         "llm_analysis_ms": 0,
     }
 
@@ -192,6 +201,13 @@ def analyze_claim(
         time.perf_counter()
     )
 
+    initial_retrieval_ms = round(
+        (
+            t2 - t1
+        )
+        * 1000
+    )
+
     if not evidence:
         if claim_preparation[
             "is_clear"
@@ -258,12 +274,11 @@ def analyze_claim(
                     )
                     * 1000
                 ),
-                "retrieval_ms": round(
-                    (
-                        t2 - t1
-                    )
-                    * 1000
+                "retrieval_ms": (
+                    initial_retrieval_ms
                 ),
+                "authority_recovery_ms": 0,
+                "fast_path_probe_ms": 0,
                 "llm_analysis_ms": 0,
             },
             "latency_ms": round(
@@ -336,12 +351,11 @@ def analyze_claim(
                     )
                     * 1000
                 ),
-                "retrieval_ms": round(
-                    (
-                        t2 - t1
-                    )
-                    * 1000
+                "retrieval_ms": (
+                    initial_retrieval_ms
                 ),
+                "authority_recovery_ms": 0,
+                "fast_path_probe_ms": 0,
                 "llm_analysis_ms": 0,
             },
             "latency_ms": round(
@@ -358,6 +372,88 @@ def analyze_claim(
                 ),
             },
         }
+
+    fast_path_probe_ms = 0
+
+    authority_recovery_ms = 0
+
+    if is_simple_atomic_claim(
+        normalized_claim
+    ):
+        probe_start = (
+            time.perf_counter()
+        )
+
+        initial_fast_analysis = (
+            try_fast_evidence_analysis(
+                claim=normalized_claim,
+                evidence=evidence,
+            )
+        )
+
+        fast_path_probe_ms = round(
+            (
+                time.perf_counter()
+                - probe_start
+            )
+            * 1000
+        )
+
+        if (
+            initial_fast_analysis
+            is None
+        ):
+            recovery_start = (
+                time.perf_counter()
+            )
+
+            recovered_evidence = (
+                recover_authority_evidence(
+                    claim=normalized_claim,
+                    existing_evidence=(
+                        evidence
+                    ),
+                    end_date=(
+                        retrieval_end_date
+                    ),
+                    deadline=deadline,
+                )
+            )
+
+            authority_recovery_ms = round(
+                (
+                    time.perf_counter()
+                    - recovery_start
+                )
+                * 1000
+            )
+
+            if recovered_evidence:
+                existing_urls = {
+                    item.url
+                    for item in evidence
+                }
+
+                for item in (
+                    recovered_evidence
+                ):
+                    if (
+                        item.url
+                        in existing_urls
+                    ):
+                        continue
+
+                    evidence.append(
+                        item
+                    )
+
+                    existing_urls.add(
+                        item.url
+                    )
+
+    analysis_start = (
+        time.perf_counter()
+    )
 
     if deadline is None:
         result = (
@@ -405,6 +501,14 @@ def analyze_claim(
         "retrieval_end_date"
     ] = retrieval_end_date
 
+    actual_analysis_ms = round(
+        (
+            t3
+            - analysis_start
+        )
+        * 1000
+    )
+
     result[
         "timings"
     ] = {
@@ -414,17 +518,19 @@ def analyze_claim(
             )
             * 1000
         ),
-        "retrieval_ms": round(
-            (
-                t2 - t1
-            )
-            * 1000
+        "retrieval_ms": (
+            initial_retrieval_ms
+            + authority_recovery_ms
         ),
-        "llm_analysis_ms": round(
-            (
-                t3 - t2
-            )
-            * 1000
+        "authority_recovery_ms": (
+            authority_recovery_ms
+        ),
+        "fast_path_probe_ms": (
+            fast_path_probe_ms
+        ),
+        "llm_analysis_ms": (
+            fast_path_probe_ms
+            + actual_analysis_ms
         ),
     }
 
