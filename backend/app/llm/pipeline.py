@@ -33,6 +33,48 @@ from backend.app.scoring.uncertainty import (
 LLM_ANALYSIS_WALL_TIMEOUT_SECONDS = (
     11.0
 )
+LLM_ANALYSIS_DEADLINE_RESERVE_SECONDS = (
+    0.75
+)
+LLM_API_TIMEOUT_RESERVE_SECONDS = (
+    0.25
+)
+MIN_LLM_ANALYSIS_WINDOW_SECONDS = (
+    0.5
+)
+
+
+def resolve_llm_wall_timeout(
+    deadline: float | None,
+) -> float:
+    if deadline is None:
+        return (
+            LLM_ANALYSIS_WALL_TIMEOUT_SECONDS
+        )
+
+    remaining = (
+        deadline
+        - time.perf_counter()
+        - LLM_ANALYSIS_DEADLINE_RESERVE_SECONDS
+    )
+
+    return max(
+        0.0,
+        min(
+            LLM_ANALYSIS_WALL_TIMEOUT_SECONDS,
+            remaining,
+        ),
+    )
+
+
+def resolve_llm_api_timeout(
+    wall_timeout_seconds: float,
+) -> float:
+    return max(
+        0.1,
+        wall_timeout_seconds
+        - LLM_API_TIMEOUT_RESERVE_SECONDS,
+    )
 
 
 def build_evidence_timeout_result(
@@ -83,15 +125,28 @@ def run_evidence_analysis(
     evidence: list[
         RetrievedEvidence
     ],
+    timeout_seconds: float | None = None,
 ):
     start = time.perf_counter()
 
-    result = (
-        analyze_evidence_with_llm(
-            claim=claim,
-            evidence=evidence,
+    if timeout_seconds is None:
+        result = (
+            analyze_evidence_with_llm(
+                claim=claim,
+                evidence=evidence,
+            )
         )
-    )
+
+    else:
+        result = (
+            analyze_evidence_with_llm(
+                claim=claim,
+                evidence=evidence,
+                timeout_seconds=(
+                    timeout_seconds
+                ),
+            )
+        )
 
     elapsed_ms = round(
         (
@@ -112,10 +167,47 @@ def analyze_claim_with_llm(
     evidence: list[
         RetrievedEvidence
     ],
+    deadline: float | None = None,
 ) -> dict:
     stage_start = (
         time.perf_counter()
     )
+
+    wall_timeout_seconds = (
+        resolve_llm_wall_timeout(
+            deadline
+        )
+    )
+
+    if (
+        wall_timeout_seconds
+        < MIN_LLM_ANALYSIS_WINDOW_SECONDS
+    ):
+        elapsed_ms = round(
+            (
+                time.perf_counter()
+                - stage_start
+            )
+            * 1000
+        )
+
+        return (
+            build_evidence_timeout_result(
+                claim=claim,
+                evidence_analysis_ms=(
+                    elapsed_ms
+                ),
+            )
+        )
+
+    api_timeout_seconds = None
+
+    if deadline is not None:
+        api_timeout_seconds = (
+            resolve_llm_api_timeout(
+                wall_timeout_seconds
+            )
+        )
 
     executor = ThreadPoolExecutor(
         max_workers=1
@@ -125,6 +217,7 @@ def analyze_claim_with_llm(
         run_evidence_analysis,
         claim,
         evidence,
+        api_timeout_seconds,
     )
 
     try:
@@ -134,7 +227,7 @@ def analyze_claim_with_llm(
                 evidence_analysis_ms,
             ) = future.result(
                 timeout=(
-                    LLM_ANALYSIS_WALL_TIMEOUT_SECONDS
+                    wall_timeout_seconds
                 )
             )
 

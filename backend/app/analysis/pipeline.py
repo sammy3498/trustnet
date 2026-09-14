@@ -80,6 +80,7 @@ def analyze_claim(
     retrieval_end_date: (
         str | None
     ) = None,
+    deadline: float | None = None,
 ) -> dict:
     start_time = (
         time.perf_counter()
@@ -358,12 +359,22 @@ def analyze_claim(
             },
         }
 
-    result = (
-        analyze_claim_with_llm(
-            claim=normalized_claim,
-            evidence=evidence,
+    if deadline is None:
+        result = (
+            analyze_claim_with_llm(
+                claim=normalized_claim,
+                evidence=evidence,
+            )
         )
-    )
+
+    else:
+        result = (
+            analyze_claim_with_llm(
+                claim=normalized_claim,
+                evidence=evidence,
+                deadline=deadline,
+            )
+        )
 
     t3 = (
         time.perf_counter()

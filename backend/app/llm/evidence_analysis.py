@@ -41,6 +41,23 @@ NORMAL_MODE_EVIDENCE_MAX_CHARS = (
 )
 
 
+def resolve_evidence_analysis_timeout(
+    timeout_seconds: float | None,
+) -> float:
+    if timeout_seconds is None:
+        return EVIDENCE_ANALYSIS_TIMEOUT_SECONDS
+
+    return min(
+        EVIDENCE_ANALYSIS_TIMEOUT_SECONDS,
+        max(
+            0.1,
+            float(
+                timeout_seconds
+            ),
+        ),
+    )
+
+
 def load_evidence_prompt() -> str:
     return PROMPT_PATH.read_text(
         encoding="utf-8"
@@ -233,6 +250,7 @@ def analyze_evidence_with_llm(
     evidence: list[
         RetrievedEvidence
     ],
+    timeout_seconds: float | None = None,
 ) -> dict:
     system_prompt = (
         load_evidence_prompt()
@@ -291,7 +309,9 @@ Evidence:
                 "trustnet_evidence_analysis_v5"
             ),
             timeout_seconds=(
-                EVIDENCE_ANALYSIS_TIMEOUT_SECONDS
+                resolve_evidence_analysis_timeout(
+                    timeout_seconds
+                )
             ),
         )
     )

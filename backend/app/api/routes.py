@@ -1,4 +1,5 @@
 import logging
+import time
 from concurrent.futures import (
     ThreadPoolExecutor,
     TimeoutError as FuturesTimeoutError,
@@ -123,6 +124,11 @@ def build_public_evidence(
 def run_normal_analysis(
     claim: str,
 ) -> dict:
+    deadline = (
+        time.perf_counter()
+        + NORMAL_MODE_HARD_TIMEOUT_SECONDS
+    )
+
     executor = (
         ThreadPoolExecutor(
             max_workers=1
@@ -134,6 +140,7 @@ def run_normal_analysis(
         claim=claim,
         search_results=5,
         top_k=3,
+        deadline=deadline,
     )
 
     try:
