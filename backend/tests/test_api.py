@@ -216,7 +216,19 @@ def test_text_input_not_implemented():
     assert response.status_code == 501
 
 
-def test_deep_mode_not_implemented():
+def test_deep_mode_is_supported(monkeypatch):
+    captured = {}
+
+    def fake_analyze(claim, **kwargs):
+        captured["claim"] = claim
+        captured["mode"] = kwargs.get("mode")
+        return fake_analysis_result()
+
+    monkeypatch.setattr(
+        "backend.app.api.routes.analyze_claim",
+        fake_analyze,
+    )
+
     response = client.post(
         "/analyze",
         json={
@@ -226,7 +238,9 @@ def test_deep_mode_not_implemented():
         },
     )
 
-    assert response.status_code == 501
+    assert response.status_code == 200
+    assert captured["claim"] == "The Earth orbits the Sun."
+    assert captured["mode"] == "deep"
 
 def test_analyze_insufficient_evidence(monkeypatch):
     fake_result = {

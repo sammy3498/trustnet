@@ -3,7 +3,7 @@ from backend.app.retrieval.evidence_builder import (
 )
 
 
-def test_snippet_fallback_is_low_quality():
+def test_snippet_fallback_preserves_source_quality():
     evidence = build_evidence_from_snippet(
         url="https://science.nasa.gov/example",
         title="NASA result",
@@ -12,8 +12,20 @@ def test_snippet_fallback_is_low_quality():
 
     assert evidence.source == "science.nasa.gov"
     assert evidence.text == "Earth travels around the Sun."
-    assert evidence.quality == "low"
+    assert evidence.quality == "high"
     assert evidence.evidence_origin == "snippet"
+
+
+def test_medium_quality_snippet_preserves_source_quality():
+    evidence = build_evidence_from_snippet(
+        url="https://www.britannica.com/example",
+        title="Britannica result",
+        snippet="Example evidence.",
+    )
+
+    assert evidence.quality == "medium"
+    assert evidence.evidence_origin == "snippet"
+
 
 def test_default_evidence_origin_is_webpage():
     from backend.app.evidence.models import RetrievedEvidence

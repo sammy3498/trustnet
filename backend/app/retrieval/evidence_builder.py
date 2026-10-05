@@ -82,12 +82,18 @@ def build_evidence_from_snippet(
         )
     )
 
+    quality = (
+        classify_source_quality(
+            url
+        )
+    )
+
     return RetrievedEvidence(
         title=title or domain,
         url=url,
         source=domain,
         text=snippet,
-        quality="low",
+        quality=quality,
         evidence_origin="snippet",
         published_date=None,
     )

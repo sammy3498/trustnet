@@ -52,6 +52,16 @@ RESEARCH_INFORMATION_DOMAINS = {
     "ourworldindata.org",
     "arxiv.org",
     "medrxiv.org",
+    "pewresearch.org",
+    "britannica.com",
+    "mayoclinic.org",
+    "clevelandclinic.org",
+    "medicalnewstoday.com",
+    "springer.com",
+    "link.springer.com",
+    "sciencedirect.com",
+    "wiley.com",
+    "nationalgeographic.com",
 }
 
 

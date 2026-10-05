@@ -1,13 +1,10 @@
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
-from fastapi import (
-    APIRouter,
-    HTTPException,
-)
+from fastapi import APIRouter, HTTPException
 
-from backend.app.analysis.pipeline import (
-    analyze_claim,
-)
+from backend.app.analysis.pipeline import analyze_claim
 from backend.app.models.schemas import (
     AnalyzeRequest,
     AnalysisResponse,
@@ -16,277 +13,199 @@ from backend.app.models.schemas import (
     FactorScore,
     UncertaintyInfo,
 )
+from backend.app.utils.config import get_mode_limits
 
 
-logger = logging.getLogger(
-    __name__
-)
-
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def derive_confidence(
-    uncertainty: dict,
-) -> str:
-    if uncertainty[
-        "gate_triggered"
-    ]:
+def derive_confidence(uncertainty: dict) -> str:
+    if uncertainty["gate_triggered"]:
         return "low"
 
-    if uncertainty[
-        "level"
-    ] == "medium":
+    if uncertainty["level"] == "medium":
         return "medium"
 
     return "high"
 
 
-def build_public_evidence(
-    result: dict,
-) -> list[EvidenceItem]:
+def build_public_evidence(result: dict) -> list[EvidenceItem]:
     retrieved_by_url = {
         item["url"]: item
-        for item in result.get(
-            "evidence",
-            [],
-        )
+        for item in result.get("evidence", [])
     }
 
-    assessments = (
-        result.get(
-            "evidence_analysis",
-            {},
-        ).get(
-            "evidence_assessments",
-            [],
-        )
+    assessments = result.get(
+        "evidence_analysis",
+        {},
+    ).get(
+        "evidence_assessments",
+        [],
     )
 
     public_evidence = []
 
     for assessment in assessments:
-        retrieved = (
-            retrieved_by_url.get(
-                assessment["url"]
-            )
-        )
+        retrieved = retrieved_by_url.get(assessment["url"])
 
         if not retrieved:
             continue
 
         public_evidence.append(
             EvidenceItem(
-                title=(
-                    retrieved[
-                        "title"
-                    ]
-                ),
-                url=(
-                    retrieved[
-                        "url"
-                    ]
-                ),
-                source=(
-                    retrieved[
-                        "source"
-                    ]
-                ),
-                stance=(
-                    assessment[
-                        "stance"
-                    ]
-                ),
-                quality=(
-                    retrieved[
-                        "quality"
-                    ]
-                ),
-                summary=(
-                    assessment[
-                        "reasoning"
-                    ]
-                ),
+                title=retrieved["title"],
+                url=retrieved["url"],
+                source=retrieved["source"],
+                stance=assessment["stance"],
+                quality=retrieved["quality"],
+                summary=assessment["reasoning"],
             )
         )
 
     return public_evidence
 
 
+def _hard_timeout_result(
+    claim: str,
+    mode: str,
+    elapsed_ms: int,
+) -> dict:
+    reason = (
+        f"{mode.title()} Mode reached the 60 second processing limit "
+        "before a complete validated result was available."
+    )
+
+    return {
+        "claim": claim,
+        "overall_score": None,
+        "label": "Insufficient Evidence",
+        "factors": None,
+        "flags": [reason],
+        "uncertainty": {
+            "gate_triggered": True,
+            "level": "high",
+            "reason": reason,
+        },
+        "evidence": [],
+        "evidence_analysis": {
+            "evidence_assessments": [],
+            "overall_evidence_direction": "insufficient",
+        },
+        "timings": {},
+        "llm_timings": {},
+        "latency_ms": elapsed_ms,
+    }
+
+
+def _run_with_hard_limit(
+    request: AnalyzeRequest,
+) -> dict:
+    limits = get_mode_limits(request.mode)
+    start = time.perf_counter()
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(
+        analyze_claim,
+        claim=request.input,
+        mode=request.mode,
+    )
+
+    api_guard_seconds = max(
+        1.0,
+        limits["hard_limit_seconds"] - 0.5,
+    )
+
+    try:
+        return future.result(timeout=api_guard_seconds)
+    except FutureTimeoutError:
+        future.cancel()
+        elapsed_ms = round((time.perf_counter() - start) * 1000)
+        logger.error(
+            "TrustNet %s mode hit the API hard timeout after %sms.",
+            request.mode,
+            elapsed_ms,
+        )
+        return _hard_timeout_result(
+            claim=request.input,
+            mode=request.mode,
+            elapsed_ms=elapsed_ms,
+        )
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 @router.post(
     "/analyze",
     response_model=AnalysisResponse,
 )
-def analyze(
-    request: AnalyzeRequest,
-):
-    if (
-        request.input_type
-        != "claim"
-    ):
+def analyze(request: AnalyzeRequest):
+    if request.input_type != "claim":
         raise HTTPException(
             status_code=501,
             detail=(
-                "Only claim input is currently "
-                "supported by the Phase 2 MVP."
-            ),
-        )
-
-    if request.mode != "normal":
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                "Deep Mode is not implemented yet."
+                "Only claim input is currently supported by the Phase 2 MVP."
             ),
         )
 
     try:
-        result = analyze_claim(
-            claim=request.input,
-            search_results=5,
-            top_k=3,
-        )
-
+        result = _run_with_hard_limit(request)
     except Exception as exc:
-        logger.exception(
-            "TrustNet credibility analysis failed."
-        )
-
+        logger.exception("TrustNet credibility analysis failed.")
         raise HTTPException(
             status_code=502,
-            detail=(
-                "Credibility analysis failed."
-            ),
+            detail="Credibility analysis failed.",
         ) from exc
 
-    timings = result.get(
-        "timings",
-        {},
-    )
-
-    llm_timings = result.get(
-        "llm_timings",
-        {},
-    )
+    timings = result.get("timings", {})
+    llm_timings = result.get("llm_timings", {})
 
     logger.warning(
         (
-            "TrustNet timing | "
-            "claim_preparation=%sms | "
-            "retrieval=%sms | "
-            "llm_analysis=%sms | "
-            "evidence_analysis=%sms | "
-            "credibility_scoring=%sms | "
-            "total=%sms"
+            "TrustNet timing | mode=%s | claim_preparation=%sms | "
+            "retrieval=%sms | llm_analysis=%sms | evidence_analysis=%sms | "
+            "credibility_scoring=%sms | total=%sms"
         ),
-        timings.get(
-            "claim_preparation_ms"
-        ),
-        timings.get(
-            "retrieval_ms"
-        ),
-        timings.get(
-            "llm_analysis_ms"
-        ),
-        llm_timings.get(
-            "evidence_analysis_ms"
-        ),
-        llm_timings.get(
-            "credibility_scoring_ms"
-        ),
-        result.get(
-            "latency_ms"
-        ),
+        request.mode,
+        timings.get("claim_preparation_ms"),
+        timings.get("retrieval_ms"),
+        timings.get("llm_analysis_ms"),
+        llm_timings.get("evidence_analysis_ms"),
+        llm_timings.get("credibility_scoring_ms"),
+        result.get("latency_ms"),
     )
 
     factors = None
 
-    if result[
-        "factors"
-    ] is not None:
+    if result["factors"] is not None:
         factors = FactorBreakdown(
-            evidence_strength=(
-                FactorScore(
-                    **result[
-                        "factors"
-                    ][
-                        "evidence_strength"
-                    ]
-                )
+            evidence_strength=FactorScore(
+                **result["factors"]["evidence_strength"]
             ),
-            factual_consistency=(
-                FactorScore(
-                    **result[
-                        "factors"
-                    ][
-                        "factual_consistency"
-                    ]
-                )
+            factual_consistency=FactorScore(
+                **result["factors"]["factual_consistency"]
             ),
-            source_provenance=(
-                FactorScore(
-                    **result[
-                        "factors"
-                    ][
-                        "source_provenance"
-                    ]
-                )
+            source_provenance=FactorScore(
+                **result["factors"]["source_provenance"]
             ),
-            bias_framing=(
-                FactorScore(
-                    **result[
-                        "factors"
-                    ][
-                        "bias_framing"
-                    ]
-                )
+            bias_framing=FactorScore(
+                **result["factors"]["bias_framing"]
             ),
-            incentive_conflict=(
-                FactorScore(
-                    **result[
-                        "factors"
-                    ][
-                        "incentive_conflict"
-                    ]
-                )
+            incentive_conflict=FactorScore(
+                **result["factors"]["incentive_conflict"]
             ),
         )
 
-    uncertainty = (
-        UncertaintyInfo(
-            **result[
-                "uncertainty"
-            ]
-        )
-    )
+    uncertainty = UncertaintyInfo(**result["uncertainty"])
 
     return AnalysisResponse(
-        claim=result[
-            "claim"
-        ],
-        overall_score=result[
-            "overall_score"
-        ],
-        label=result[
-            "label"
-        ],
-        confidence=(
-            derive_confidence(
-                result[
-                    "uncertainty"
-                ]
-            )
-        ),
+        claim=result["claim"],
+        overall_score=result["overall_score"],
+        label=result["label"],
+        confidence=derive_confidence(result["uncertainty"]),
         factors=factors,
         uncertainty=uncertainty,
-        evidence=(
-            build_public_evidence(
-                result
-            )
-        ),
-        flags=result[
-            "flags"
-        ],
-        latency_ms=result[
-            "latency_ms"
-        ],
+        evidence=build_public_evidence(result),
+        flags=result["flags"],
+        latency_ms=result["latency_ms"],
     )

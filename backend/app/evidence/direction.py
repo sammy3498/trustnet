@@ -21,38 +21,22 @@ def resolve_overall_evidence_direction(
         for item in subclaim_assessments
     }
 
-    statuses.discard(
-        None
-    )
+    statuses.discard(None)
 
     if "mixed" in statuses:
         return "mixed"
 
-    has_support = (
-        "supports" in statuses
-    )
+    has_support = "supports" in statuses
+    has_contradiction = "contradicts" in statuses
+    has_insufficient = "insufficient" in statuses
 
-    has_contradiction = (
-        "contradicts" in statuses
-    )
-
-    has_insufficient = (
-        "insufficient" in statuses
-    )
-
-    if (
-        has_support
-        and has_contradiction
-    ):
+    if has_support and has_contradiction:
         return "mixed"
 
     if has_contradiction:
         return "contradicts"
 
-    if (
-        has_support
-        and has_insufficient
-    ):
+    if has_support and has_insufficient:
         return "insufficient"
 
     if has_support:
@@ -66,16 +50,22 @@ def align_evidence_strength_score(
     original_direction: EvidenceDirection,
     resolved_direction: EvidenceDirection,
 ) -> int:
-    if (
-        resolved_direction
-        == original_direction
-    ):
-        return score
+    score = max(0, min(100, int(score)))
 
     if resolved_direction in {
         "mixed",
         "insufficient",
     }:
         return 50
+
+    if resolved_direction == "supports":
+        if score < 50:
+            return 100 - score
+        return score
+
+    if resolved_direction == "contradicts":
+        if score > 50:
+            return 100 - score
+        return score
 
     return score

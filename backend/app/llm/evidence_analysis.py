@@ -33,11 +33,94 @@ EVIDENCE_ANALYSIS_SCHEMA = (
     .model_json_schema()
 )
 
+NORMAL_EVIDENCE_MAX_CHARS = 1200
+
 
 def load_evidence_prompt() -> str:
     return PROMPT_PATH.read_text(
         encoding="utf-8"
     )
+
+
+def get_evidence_max_chars(
+    mode: str,
+) -> int:
+    if mode == "normal":
+        return (
+            NORMAL_EVIDENCE_MAX_CHARS
+        )
+
+    return (
+        DEFAULT_PASSAGE_MAX_CHARS
+    )
+
+
+def _normalized_url(
+    value: str,
+) -> str:
+    return value.strip().rstrip("/")
+
+
+def apply_retrieved_source_quality(
+    analysis: dict,
+    evidence: list[
+        RetrievedEvidence
+    ],
+) -> dict:
+    quality_by_url = {
+        _normalized_url(
+            item.url
+        ): item.quality
+        for item in evidence
+    }
+
+    quality_by_title = {
+        item.title.strip().lower(): (
+            item.quality
+        )
+        for item in evidence
+        if item.title.strip()
+    }
+
+    for assessment in analysis.get(
+        "evidence_assessments",
+        [],
+    ):
+        url_key = _normalized_url(
+            str(
+                assessment.get(
+                    "url",
+                    "",
+                )
+            )
+        )
+
+        resolved_quality = (
+            quality_by_url.get(
+                url_key
+            )
+        )
+
+        if resolved_quality is None:
+            title_key = str(
+                assessment.get(
+                    "title",
+                    "",
+                )
+            ).strip().lower()
+
+            resolved_quality = (
+                quality_by_title.get(
+                    title_key
+                )
+            )
+
+        if resolved_quality is not None:
+            assessment[
+                "quality"
+            ] = resolved_quality
+
+    return analysis
 
 
 def apply_v4_subclaim_consistency(
@@ -206,6 +289,8 @@ def analyze_evidence_with_llm(
     evidence: list[
         RetrievedEvidence
     ],
+    timeout_seconds: float | None = None,
+    mode: str = "normal",
 ) -> dict:
     system_prompt = (
         load_evidence_prompt()
@@ -213,27 +298,31 @@ def analyze_evidence_with_llm(
 
     evidence_parts = []
 
+    max_chars = (
+        get_evidence_max_chars(
+            mode
+        )
+    )
+
     for item in evidence:
         excerpt = (
             get_relevant_excerpt(
                 text=item.text,
                 query=claim,
-                max_chars=(
-                    DEFAULT_PASSAGE_MAX_CHARS
-                ),
+                max_chars=max_chars,
             )
         )
 
         evidence_parts.append(
             f"""
-        Title: {item.title}
-        URL: {item.url}
-        Source: {item.source}
-        Quality: {item.quality}
-        Origin: {item.evidence_origin}
-        Evidence:
-        {excerpt}
-        """
+Title: {item.title}
+URL: {item.url}
+Source: {item.source}
+Quality: {item.quality}
+Origin: {item.evidence_origin}
+Evidence:
+{excerpt}
+"""
         )
 
     evidence_text = (
@@ -263,6 +352,9 @@ Evidence:
             ),
             response_schema_name=(
                 "trustnet_evidence_analysis_v4"
+            ),
+            timeout_seconds=(
+                timeout_seconds
             ),
         )
     )
@@ -295,6 +387,13 @@ Evidence:
 
     analysis = (
         validated.model_dump()
+    )
+
+    analysis = (
+        apply_retrieved_source_quality(
+            analysis=analysis,
+            evidence=evidence,
+        )
     )
 
     analysis = (

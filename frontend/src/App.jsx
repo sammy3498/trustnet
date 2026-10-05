@@ -722,6 +722,7 @@ function App() {
               handleSaveConfig
             }
           >
+            <div className="window-bar" aria-hidden="true">TRUSTNET / SETUP</div>
             <div className="setup-heading">
               <div>
                 <h3>
@@ -957,6 +958,9 @@ function App() {
               evidence-first credibility
               assessment.
             </p>
+            <div className="desk-caption" aria-label="Analysis features">
+              <span>Source retrieval</span><span>Five factors</span><span>Evidence report</span>
+            </div>
           </div>
 
           <form
@@ -965,6 +969,7 @@ function App() {
               handleAnalyze
             }
           >
+            <div className="window-bar" aria-hidden="true">CLAIM / NEW ANALYSIS</div>
             <div className="input-heading">
               <div>
                 <h3>
@@ -972,9 +977,7 @@ function App() {
                 </h3>
 
                 <p>
-                  Enter one factual
-                  claim for the
-                  current MVP.
+                  Enter one factual claim to investigate.
                 </p>
               </div>
 
@@ -984,6 +987,7 @@ function App() {
             </div>
 
             <textarea
+              aria-label="Claim to analyze"
               value={claim}
               onChange={
                 (event) =>
@@ -1025,6 +1029,7 @@ function App() {
 
         {error && (
           <section
+            role="alert"
             className=
               "message error-message"
           >
@@ -1039,7 +1044,7 @@ function App() {
         )}
 
         {loading && (
-          <section className="loading-card">
+          <section className="loading-card" role="status" aria-live="polite">
             <div className="loader" />
 
             <div>
