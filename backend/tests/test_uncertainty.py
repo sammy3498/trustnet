@@ -15,8 +15,8 @@ def test_insufficient_evidence():
         )
     )
 
-    assert gate is True
-    assert level == "high"
+    assert gate is False
+    assert level == "low"
 
 
 def test_no_reliable_evidence_has_medium_uncertainty():
@@ -33,7 +33,7 @@ def test_no_reliable_evidence_has_medium_uncertainty():
 
     assert gate is False
     assert level == "medium"
-    assert "provenance" in reason.lower()
+    assert "lower-authority" in reason.lower()
 
 
 def test_one_medium_source_has_medium_uncertainty():
@@ -112,9 +112,9 @@ def test_reliable_conflicting_evidence_does_not_abstain():
         )
     )
 
-    assert gate is False
-    assert level == "medium"
-    assert "mixed" in reason.lower()
+    assert gate is True
+    assert level == "high"
+    assert "direction" in reason.lower()
 
 
 def test_mixed_direction_does_not_abstain_with_reliable_evidence():
@@ -129,8 +129,8 @@ def test_mixed_direction_does_not_abstain_with_reliable_evidence():
         )
     )
 
-    assert gate is False
-    assert level == "medium"
+    assert gate is True
+    assert level == "high"
 
 
 def test_unreliable_mixed_evidence_still_abstains():
@@ -147,7 +147,7 @@ def test_unreliable_mixed_evidence_still_abstains():
 
     assert gate is True
     assert level == "high"
-    assert "mixed" in reason.lower()
+    assert "direction" in reason.lower()
 
 
 def test_insufficient_direction_forces_gate():

@@ -29,6 +29,12 @@ function App() {
   const [claim, setClaim] =
     useState('')
 
+  const [analysisMode, setAnalysisMode] =
+    useState('normal')
+
+  const [resultMode, setResultMode] =
+    useState(null)
+
   const [result, setResult] =
     useState(null)
 
@@ -71,6 +77,8 @@ function App() {
     setConfigError,
   ] = useState('')
 
+  const [llmProvider, setLlmProvider] = useState('gemini')
+
   const [
     llmApiKey,
     setLlmApiKey,
@@ -90,6 +98,8 @@ function App() {
     settingsOpen,
     setSettingsOpen,
   ] = useState(false)
+
+  const [settingsLlmProvider, setSettingsLlmProvider] = useState('gemini')
 
   const [
     settingsLlmApiKey,
@@ -191,6 +201,7 @@ function App() {
             setConfigStatus(
               status,
             )
+            setLlmProvider(status.llmProvider || 'gemini')
 
             setConfigured(
               status.configured,
@@ -287,7 +298,7 @@ function App() {
   ) {
     event.preventDefault()
 
-    const openAiKey =
+    const providerKey =
       llmApiKey.trim()
 
     const tavilyKey =
@@ -297,12 +308,12 @@ function App() {
       llmModel.trim()
 
     if (
-      !openAiKey
+      !providerKey
       || !tavilyKey
       || !model
     ) {
       setConfigError(
-        'OpenAI API key, Tavily API key, and model are required.',
+        'LLM API key, Tavily API key, and model are required.',
       )
 
       return
@@ -329,8 +340,9 @@ function App() {
         await window
           .trustnetDesktop
           .saveConfig({
+            llmProvider,
             llmApiKey:
-              openAiKey,
+              providerKey,
 
             tavilyApiKey:
               tavilyKey,
@@ -355,6 +367,7 @@ function App() {
           source: 'secure',
           editable: true,
           llmModel: model,
+          llmProvider,
           hasLlmApiKey: true,
           hasTavilyApiKey: true,
         }
@@ -383,6 +396,7 @@ function App() {
   }
 
   function openSettings() {
+    setSettingsLlmProvider(configStatus?.llmProvider || 'gemini')
     setSettingsLlmApiKey('')
     setSettingsTavilyApiKey('')
 
@@ -434,7 +448,7 @@ function App() {
       !model
     ) {
       setSettingsError(
-        'An OpenAI model is required.',
+        'An LLM model is required.',
       )
 
       return
@@ -450,6 +464,7 @@ function App() {
         await window
           .trustnetDesktop
           .saveConfig({
+            llmProvider: settingsLlmProvider,
             llmApiKey:
               settingsLlmApiKey
                 .trim(),
@@ -485,6 +500,7 @@ function App() {
             source: 'secure',
             editable: true,
             llmModel: model,
+            llmProvider: settingsLlmProvider,
             hasLlmApiKey: true,
             hasTavilyApiKey: true,
           }),
@@ -556,7 +572,7 @@ function App() {
                   'claim',
 
                 mode:
-                  'normal',
+                  analysisMode,
               }),
           },
         )
@@ -574,6 +590,7 @@ function App() {
       }
 
       setResult(data)
+      setResultMode(analysisMode)
     } catch (
       requestError
     ) {
@@ -705,8 +722,8 @@ function App() {
             </h2>
 
             <p>
-              TrustNet uses OpenAI
-              for structured credibility
+              TrustNet uses your selected
+              LLM provider for credibility
               reasoning and Tavily for
               evidence retrieval. Your
               credentials are encrypted
@@ -742,8 +759,17 @@ function App() {
             </div>
 
             <label className="config-field">
+              <span>LLM provider</span>
+              <select value={llmProvider} onChange={(e) => setLlmProvider(e.target.value)} disabled={savingConfig}>
+                <option value="gemini">Google Gemini</option>
+                <option value="openai">OpenAI</option>
+                <option value="openrouter">OpenRouter</option>
+              </select>
+            </label>
+
+            <label className="config-field">
               <span>
-                OpenAI API key
+                {llmProvider === 'gemini' ? 'Gemini' : llmProvider === 'openrouter' ? 'OpenRouter' : 'OpenAI'} API key
               </span>
 
               <input
@@ -755,7 +781,7 @@ function App() {
                       event.target.value,
                     )
                 }
-                placeholder="sk-..."
+                placeholder="Enter your provider API key"
                 autoComplete="off"
                 disabled={
                   savingConfig
@@ -787,7 +813,7 @@ function App() {
 
             <label className="config-field">
               <span>
-                OpenAI model
+                {llmProvider === 'gemini' ? 'Gemini' : llmProvider === 'openrouter' ? 'OpenRouter' : 'OpenAI'} model
               </span>
 
               <input
@@ -982,9 +1008,38 @@ function App() {
               </div>
 
               <span className="mode-badge">
-                Normal mode
+                {analysisMode === 'deep' ? 'Deep mode' : 'Normal mode'}
               </span>
             </div>
+
+            <fieldset
+              className="analysis-mode-selector"
+              disabled={loading}
+            >
+              <legend>Analysis mode</legend>
+              <div className="analysis-mode-options">
+                <label className={analysisMode === 'normal' ? 'selected' : ''}>
+                  <input
+                    type="radio"
+                    name="analysis-mode"
+                    value="normal"
+                    checked={analysisMode === 'normal'}
+                    onChange={() => setAnalysisMode('normal')}
+                  />
+                  <span><strong>Normal</strong> — faster analysis</span>
+                </label>
+                <label className={analysisMode === 'deep' ? 'selected' : ''}>
+                  <input
+                    type="radio"
+                    name="analysis-mode"
+                    value="deep"
+                    checked={analysisMode === 'deep'}
+                    onChange={() => setAnalysisMode('deep')}
+                  />
+                  <span><strong>Deep</strong> — more thorough retrieval</span>
+                </label>
+              </div>
+            </fieldset>
 
             <textarea
               aria-label="Claim to analyze"
@@ -1107,6 +1162,15 @@ function App() {
             </div>
 
             <div className="summary-grid">
+              <article className="summary-card">
+                <span>
+                  Analysis mode
+                </span>
+                <strong className="capitalize">
+                  {resultMode}
+                </strong>
+              </article>
+
               <article className="summary-card">
                 <span>
                   Confidence
@@ -1510,8 +1574,23 @@ function App() {
                 }
               >
                 <label className="config-field">
+                  <span>LLM provider</span>
+                  <select value={settingsLlmProvider} onChange={(e) => {
+                    setSettingsLlmProvider(e.target.value)
+                    if (e.target.value !== (configStatus?.llmProvider || 'gemini')) {
+                      setSettingsLlmModel('')
+                      setSettingsLlmApiKey('')
+                    }
+                  }} disabled={settingsSaving}>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="openrouter">OpenRouter</option>
+                  </select>
+                </label>
+
+                <label className="config-field">
                   <span>
-                    OpenAI API key
+                    {settingsLlmProvider === 'gemini' ? 'Gemini' : settingsLlmProvider === 'openrouter' ? 'OpenRouter' : 'OpenAI'} API key
                   </span>
 
                   <input
@@ -1529,7 +1608,7 @@ function App() {
                       configStatus
                         ?.hasLlmApiKey
                         ? 'Stored securely — leave blank to keep it'
-                        : 'Enter OpenAI API key'
+                        : 'Enter provider API key'
                     }
                     autoComplete="off"
                     disabled={
@@ -1569,7 +1648,7 @@ function App() {
 
                 <label className="config-field">
                   <span>
-                    OpenAI model
+                    {settingsLlmProvider === 'gemini' ? 'Gemini' : settingsLlmProvider === 'openrouter' ? 'OpenRouter' : 'OpenAI'} model
                   </span>
 
                   <input
@@ -1584,7 +1663,7 @@ function App() {
                         )
                     }
                     placeholder=
-                      "OpenAI model"
+                      "Model identifier"
                     autoComplete="off"
                     disabled={
                       settingsSaving

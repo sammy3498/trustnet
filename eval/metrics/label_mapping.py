@@ -43,10 +43,9 @@ def trustnet_operational_to_averitec(
         {},
     )
 
-    if uncertainty.get(
-        "gate_triggered",
-        False,
-    ):
+    if uncertainty.get("gate_triggered", False):
         return "Not Enough Evidence"
 
+    # A grounded mixed verdict is a first-class TrustNet result; do not
+    # reclassify it as an abstention simply because no numeric score exists.
     return trustnet_to_averitec(result)

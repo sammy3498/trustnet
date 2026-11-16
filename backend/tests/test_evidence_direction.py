@@ -34,7 +34,7 @@ def test_all_supported():
     assert result == "supports"
 
 
-def test_support_and_contradiction_is_mixed():
+def test_conjunction_with_false_component_is_contradicted():
     result = (
         resolve_overall_evidence_direction(
             [
@@ -51,7 +51,7 @@ def test_support_and_contradiction_is_mixed():
         )
     )
 
-    assert result == "mixed"
+    assert result == "contradicts"
 
 
 def test_mixed_subclaim_makes_overall_mixed():

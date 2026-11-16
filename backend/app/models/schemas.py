@@ -56,6 +56,7 @@ class AnalysisResponse(BaseModel):
         "Low Credibility",
         "Not Credible",
         "Insufficient Evidence",
+        "Conflicting Evidence/Cherrypicking",
     ]
 
     confidence: Literal["low", "medium", "high"]

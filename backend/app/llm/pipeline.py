@@ -11,6 +11,9 @@ from backend.app.evidence.conflict import (
 from backend.app.evidence.domain import (
     get_publisher_domain,
 )
+from backend.app.evidence.quality_policy import directional_gate, relevant_assessments
+from backend.app.evidence.conflict_verdict import grounded_mixed_evidence
+from backend.app.scoring.evidence_verdict import reconcile
 from backend.app.evidence.models import (
     RetrievedEvidence,
 )
@@ -111,12 +114,8 @@ def _assessment_strength(
         )
     )
 
-    return (
-        100.0
-        * quality
-        * directness
-        * relevance
-    )
+    origin = 0.72 if assessment.get("evidence_origin") == "snippet" else 1.0
+    return 100.0 * quality * directness * relevance * origin
 
 
 def _combine_directional_strengths(
@@ -270,24 +269,9 @@ def _is_material_assessment(
         "relevance"
     )
 
-    if stance in {
-        "supports",
-        "contradicts",
-        "mixed",
-    }:
-        return True
-
-    if (
-        relevance == "high"
-        and directness
-        in {
-            "direct",
-            "partial",
-        }
-    ):
-        return True
-
-    return False
+    return (stance in {"supports", "contradicts", "mixed"}
+            and relevance in {"high", "medium"}
+            and directness in {"direct", "partial"})
 
 
 def calculate_deterministic_source_provenance(
@@ -821,8 +805,6 @@ def analyze_claim_with_llm(
     if (
         evidence_analysis
         is None
-        or llm_result
-        is None
     ):
         reason = (
             f"{mode.title()} Mode "
@@ -846,6 +828,17 @@ def analyze_claim_with_llm(
                 reason=reason,
             )
         )
+
+    if llm_result is None:
+        # A slow secondary factor call must not hide completed evidence analysis.
+        llm_result = {
+            "claim": claim,
+            "flags": ["Secondary factor analysis was unavailable; neutral contextual values were used."],
+            "factors": {
+                name: {"score": 50, "justification": "Not independently assessed in this run."}
+                for name in ("factual_consistency", "source_provenance", "bias_framing", "incentive_conflict")
+            },
+        }
 
     deterministic_evidence_strength = (
         calculate_deterministic_evidence_strength(
@@ -889,141 +882,74 @@ def analyze_claim_with_llm(
         ),
     }
 
-    overall_score = (
-        calculate_overall_score(
-            evidence_strength=(
-                factors[
-                    "evidence_strength"
-                ][
-                    "score"
-                ]
-            ),
-            factual_consistency=(
-                factors[
-                    "factual_consistency"
-                ][
-                    "score"
-                ]
-            ),
-            source_provenance=(
-                factors[
-                    "source_provenance"
-                ][
-                    "score"
-                ]
-            ),
-            bias_framing=(
-                factors[
-                    "bias_framing"
-                ][
-                    "score"
-                ]
-            ),
-            incentive_conflict=(
-                factors[
-                    "incentive_conflict"
-                ][
-                    "score"
-                ]
-            ),
-        )
+    # A cited evidence page must be assessed *as material* before it counts
+    # toward provenance or confidence.  Three neutral web pages are not three
+    # confirmations of a claim.
+    evidence_direction = evidence_analysis.get("overall_evidence_direction", "insufficient")
+    subclaims = evidence_analysis.get("subclaim_assessments", [])
+    allow_partial = evidence_direction == "supports" and len(subclaims) > 1
+    material = relevant_assessments(
+        evidence_analysis.get("evidence_assessments", []), evidence,
+        direction=evidence_direction if evidence_direction in {"supports", "contradicts"} else None,
+        allow_partial=allow_partial or evidence_direction == "mixed",
     )
-
-    evidence_count = (
-        len(
-            evidence
-        )
-    )
-
+    relevant_items = {doc.url: doc for _, doc in material}
     high_quality_sources = {
-        get_publisher_domain(
-            item.source
-        )
-        for item in evidence
-        if item.quality
-        == "high"
+        get_publisher_domain(doc.source or doc.url)
+        for doc in relevant_items.values() if doc.quality == "high"
     }
-
     medium_quality_sources = {
-        get_publisher_domain(
-            item.source
-        )
-        for item in evidence
-        if item.quality
-        == "medium"
+        get_publisher_domain(doc.source or doc.url)
+        for doc in relevant_items.values() if doc.quality == "medium"
     }
 
-    high_quality_count = (
-        len(
-            high_quality_sources
-        )
+    reliable_urls = {doc.url for doc in evidence if doc.quality in {"high", "medium"}}
+    conflicting_evidence = detect_conflicting_evidence(
+        evidence_analysis.get("evidence_assessments", []), reliable_urls=reliable_urls,
     )
+    # Positive evidence for an *independent true conjunct* does not conflict
+    # with direct refutation of another conjunct in the same compound claim.
+    statuses = {sub.get("status") for sub in subclaims}
+    if (len(subclaims) > 1 and evidence_direction == "contradicts"
+            and "supports" in statuses and "contradicts" in statuses):
+        conflicting_evidence = False
 
-    medium_quality_count = (
-        len(
-            medium_quality_sources
-        )
+    mixed_grounding = grounded_mixed_evidence(evidence_analysis, evidence)
+    uncertainty_gate, uncertainty_level, uncertainty_reason = evaluate_uncertainty(
+        evidence_count=len(relevant_items),
+        high_quality_count=len(high_quality_sources),
+        medium_quality_count=len(medium_quality_sources),
+        conflicting_evidence=conflicting_evidence,
+        claim_is_clear=True,
+        evidence_direction=evidence_direction,
+        mixed_grounded=mixed_grounding["grounded"],
     )
-
-    reliable_urls = {
-        item.url
-        for item in evidence
-        if item.quality
-        in {
-            "high",
-            "medium",
-        }
-    }
-
-    conflicting_evidence = (
-        detect_conflicting_evidence(
-            evidence_analysis[
-                "evidence_assessments"
-            ],
-            reliable_urls=(
-                reliable_urls
-            ),
+    if not uncertainty_gate and relevant_items and all(
+        doc.evidence_origin == "snippet" for doc in relevant_items.values()
+    ):
+        uncertainty_level = "medium"
+        uncertainty_reason = "Only search snippets, not complete source pages, were available for the decisive evidence."
+    if not uncertainty_gate:
+        reason = directional_gate(
+            evidence_direction,
+            evidence_analysis.get("evidence_assessments", []),
+            evidence, get_publisher_domain,
+            medium_needed=2, subclaims=subclaims,
         )
-    )
+        if reason:
+            uncertainty_gate, uncertainty_level, uncertainty_reason = True, "high", reason
 
-    evidence_direction = (
-        evidence_analysis.get(
-            "overall_evidence_direction"
-        )
-    )
-
-    (
-        uncertainty_gate,
-        uncertainty_level,
-        uncertainty_reason,
-    ) = (
-        evaluate_uncertainty(
-            evidence_count=(
-                evidence_count
-            ),
-            high_quality_count=(
-                high_quality_count
-            ),
-            medium_quality_count=(
-                medium_quality_count
-            ),
-            conflicting_evidence=(
-                conflicting_evidence
-            ),
-            claim_is_clear=True,
-            evidence_direction=(
-                evidence_direction
-            ),
-        )
-    )
+    overall_score = None
+    if not uncertainty_gate:
+        overall_score, reason = reconcile(evidence_direction, factors)
+        if reason or (overall_score is None and evidence_direction != "mixed"):
+            uncertainty_gate, uncertainty_level = True, "high"
+            uncertainty_reason = reason or "No defensible evidence-grounded score could be calculated."
 
     label = (
-        get_label(
-            overall_score,
-            uncertainty_gate=(
-                uncertainty_gate
-            ),
-        )
+        "Conflicting Evidence/Cherrypicking"
+        if evidence_direction == "mixed" and not uncertainty_gate
+        else get_label(overall_score if overall_score is not None else 50, uncertainty_gate=uncertainty_gate)
     )
 
     return {
@@ -1046,9 +972,9 @@ def analyze_claim_with_llm(
         "label": label,
         "factors": factors,
         "flags": (
-            llm_result[
-                "flags"
-            ]
+            llm_result["flags"]
+            + (["Materially conflicting evidence or omitted context is directly documented; score withheld because a single credibility percentage would be misleading."] if evidence_direction == "mixed" and not uncertainty_gate else [])
+            + (["Compound claim contains both supported and refuted components; a contradicted essential conjunct makes the full assertion false."] if evidence_direction == "contradicts" and "supports" in statuses else [])
         ),
         "uncertainty": {
             "gate_triggered": (

@@ -50,8 +50,8 @@ def score_claim_with_llm(
         excerpt = (
             get_relevant_excerpt(
                 text=item.text,
-                query=claim,
-                max_chars=3000,
+                query=(item.matched_query or claim),
+                max_chars=1500,
             )
         )
 

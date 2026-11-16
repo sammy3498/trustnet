@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
 
@@ -15,6 +16,7 @@ from backend.app.retrieval.excerpt import (
 from backend.app.retrieval.fusion import fuse_rankings
 from backend.app.retrieval.hybrid import retrieve_hybrid
 from backend.app.retrieval.query_coverage import select_query_aware_evidence
+from backend.app.retrieval.source_priority import prioritize_for_fetch, select_facet_evidence
 from backend.app.retrieval.reranker import rerank_documents
 from backend.app.retrieval.tavily_provider import TavilySearchProvider
 from backend.app.retrieval.temporal import (
@@ -409,6 +411,9 @@ def search_and_retrieve(
                 exc,
             )
 
+    # `done` is a set: restore search-query priority before pruning URLs.
+    search_result_groups.sort(key=lambda group: queries.index(group[0]))
+
     for future in not_done:
         future.cancel()
 
@@ -461,6 +466,12 @@ def search_and_retrieve(
     if not search_items:
         return []
 
+    # Preserve diversity without parsing dozens of pages per claim.
+    fetch_count = min(len(search_items), max(6, top_k * 2))
+    fetch_items = prioritize_for_fetch(search_items, url_query_ranks, queries, fetch_count)
+    fetched_urls = {item.url for item in fetch_items}
+    snippet_only_items = [item for item in search_items if item.url not in fetched_urls]
+
     candidates = []
     fetch_start = time.perf_counter()
 
@@ -473,14 +484,16 @@ def search_and_retrieve(
     if fetch_timeout == 0.0:
         return []
 
-    fetch_executor = ThreadPoolExecutor(max_workers=5)
+    fetch_executor = ThreadPoolExecutor(
+        max_workers=min(8, len(fetch_items))
+    )
     fetch_futures = {
         fetch_executor.submit(
             build_evidence_from_url,
             result.url,
             result.title,
         ): result
-        for result in search_items
+        for result in fetch_items
     }
 
     done, not_done = wait(
@@ -567,6 +580,17 @@ def search_and_retrieve(
             )
 
     fetch_executor.shutdown(wait=False, cancel_futures=True)
+
+    for result in snippet_only_items:
+        if result.snippet.strip():
+            candidates.append(
+                build_evidence_from_snippet(
+                    url=result.url,
+                    title=result.title,
+                    snippet=result.snippet,
+                )
+            )
+
     fetch_end = time.perf_counter()
 
     if not candidates:
@@ -601,7 +625,14 @@ def search_and_retrieve(
 
     rerank_start = time.perf_counter()
 
-    should_rerank = (
+    # Normal prioritizes a fast hybrid rank. Deep retains cross-encoder
+    # reranking, unless explicitly enabled for Normal with an env setting.
+    allow_rerank = (
+        mode == "deep"
+        or os.getenv("TRUSTNET_RERANK_NORMAL", "0").lower()
+        in {"1", "true", "yes", "on"}
+    )
+    should_rerank = allow_rerank and (
         not budget
         or (
             not budget.should_stop_optional_work()
@@ -638,46 +669,16 @@ def search_and_retrieve(
 
     selection_start = time.perf_counter()
 
-    should_run_query_coverage = (
-        verification_queries
-        and (
-            not budget
-            or (
-                not budget.should_stop_optional_work()
-                and budget.can_start(
-                    expected_seconds=1.5,
-                    reserve_seconds=(
-                        limits["finalization_reserve_seconds"] + 1.0
-                    ),
-                )
-            )
-        )
+    # Select for evidence coverage rather than assuming the first search query
+    # represents every material facet of a compound claim.  This selection
+    # uses existing hybrid/rerank scores; no additional model pass is needed.
+    selected = select_facet_evidence(
+        ranked=fused_ranked,
+        fallback=hybrid_ranked,
+        query_ranks=url_query_ranks,
+        queries=queries,
+        top_k=top_k,
     )
-
-    if should_run_query_coverage:
-        selected = select_query_aware_evidence(
-            primary_ranked=fused_ranked,
-            fallback_ranked=hybrid_ranked,
-            verification_queries=verification_queries,
-            url_query_ranks=url_query_ranks,
-            top_k=top_k,
-            temporal_reference_text=temporal_reference_text,
-        )
-    else:
-        selected = _fast_select(
-            ranked=fused_ranked,
-            fallback=hybrid_ranked,
-            top_k=top_k,
-        )
-
-    if mode == "deep":
-        selected = _deep_quality_select(
-            base_selected=selected,
-            ranked=fused_ranked,
-            fallback=hybrid_ranked,
-            top_k=top_k,
-        )
-
     selection_end = time.perf_counter()
 
     logger.warning(

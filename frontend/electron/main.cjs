@@ -336,62 +336,39 @@ function decryptSecureValue(
 }
 
 
-function readSecureConfig() {
-  if (
-    !safeStorage.isEncryptionAvailable()
-  ) {
-    throw new Error(
-      'Secure credential storage is unavailable.',
-    )
+const SUPPORTED_PROVIDERS = new Set(['gemini', 'openai', 'openrouter'])
+
+function normalizeProvider(value) {
+  // Existing secure desktop installs were OpenAI-only.
+  const provider = String(value || 'openai').trim().toLowerCase()
+  if (!SUPPORTED_PROVIDERS.has(provider)) {
+    throw new Error(`Unsupported LLM provider: ${provider}`)
   }
-
-  const rawConfig =
-    readSecureConfigRecord()
-
-  return {
-    llmApiKey:
-      decryptSecureValue(
-        rawConfig.llmApiKey,
-        'OpenAI API key',
-      ),
-
-    tavilyApiKey:
-      decryptSecureValue(
-        rawConfig.tavilyApiKey,
-        'Tavily API key',
-      ),
-
-    llmModel:
-      String(
-        rawConfig.llmModel ?? '',
-      ).trim(),
-  }
+  return provider
 }
 
+function readSecureConfig() {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Secure credential storage is unavailable.')
+  }
+  const rawConfig = readSecureConfigRecord()
+  return {
+    llmProvider: normalizeProvider(rawConfig.llmProvider),
+    llmApiKey: decryptSecureValue(rawConfig.llmApiKey, 'LLM API key'),
+    tavilyApiKey: decryptSecureValue(rawConfig.tavilyApiKey, 'Tavily API key'),
+    llmModel: String(rawConfig.llmModel ?? '').trim(),
+  }
+}
 
 function readSecureConfigMetadata() {
-  const rawConfig =
-    readSecureConfigRecord()
-
-  const llmModel = String(
-    rawConfig.llmModel ?? '',
-  ).trim()
-
+  const rawConfig = readSecureConfigRecord()
   return {
-    llmModel,
-
-    hasLlmApiKey:
-      typeof rawConfig.llmApiKey
-        === 'string'
-      && rawConfig.llmApiKey.length > 0,
-
-    hasTavilyApiKey:
-      typeof rawConfig.tavilyApiKey
-        === 'string'
-      && rawConfig.tavilyApiKey.length > 0,
+    llmProvider: normalizeProvider(rawConfig.llmProvider),
+    llmModel: String(rawConfig.llmModel ?? '').trim(),
+    hasLlmApiKey: typeof rawConfig.llmApiKey === 'string' && rawConfig.llmApiKey.length > 0,
+    hasTavilyApiKey: typeof rawConfig.tavilyApiKey === 'string' && rawConfig.tavilyApiKey.length > 0,
   }
 }
-
 
 function parseLegacyEnv() {
   const contents = fs.readFileSync(
@@ -463,289 +440,105 @@ function parseLegacyEnv() {
 
 
 function readLegacyConfig() {
-  const values =
-    parseLegacyEnv()
-
+  const values = parseLegacyEnv()
+  const llmProvider = normalizeProvider(values.LLM_PROVIDER || 'openai')
+  const providerVars = {
+    gemini: ['GEMINI_API_KEY', 'GEMINI_MODEL'],
+    openai: ['OPENAI_API_KEY', 'OPENAI_MODEL'],
+    openrouter: ['OPENROUTER_API_KEY', 'OPENROUTER_MODEL'],
+  }[llmProvider]
   return {
-    llmApiKey:
-      String(
-        values.LLM_API_KEY ?? '',
-      ).trim(),
-
-    tavilyApiKey:
-      String(
-        values.SEARCH_API_KEY
-        ?? values.TAVILY_API_KEY
-        ?? '',
-      ).trim(),
-
-    llmModel:
-      String(
-        values.LLM_MODEL ?? '',
-      ).trim(),
+    llmProvider,
+    llmApiKey: String(values[providerVars[0]] ?? values.LLM_API_KEY ?? '').trim(),
+    tavilyApiKey: String(values.SEARCH_API_KEY ?? values.TAVILY_API_KEY ?? '').trim(),
+    llmModel: String(values[providerVars[1]] ?? values.LLM_MODEL ?? '').trim(),
   }
 }
 
-
-function writeSecureConfig(
-  config,
-) {
-  if (
-    !safeStorage.isEncryptionAvailable()
-  ) {
-    throw new Error(
-      'Secure credential storage is unavailable.',
-    )
+function writeSecureConfig(config) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Secure credential storage is unavailable.')
   }
-
-  const configDirectory =
-    getConfigDirectory()
-
-  fs.mkdirSync(
-    configDirectory,
-    {
-      recursive: true,
-    },
-  )
-
+  const configDirectory = getConfigDirectory()
+  fs.mkdirSync(configDirectory, { recursive: true })
   const secureConfig = {
-    llmApiKey:
-      safeStorage.encryptString(
-        config.llmApiKey,
-      ).toString(
-        'base64',
-      ),
-
-    tavilyApiKey:
-      safeStorage.encryptString(
-        config.tavilyApiKey,
-      ).toString(
-        'base64',
-      ),
-
-    llmModel:
-      config.llmModel,
+    llmProvider: normalizeProvider(config.llmProvider),
+    llmApiKey: safeStorage.encryptString(config.llmApiKey).toString('base64'),
+    tavilyApiKey: safeStorage.encryptString(config.tavilyApiKey).toString('base64'),
+    llmModel: config.llmModel,
   }
-
-  fs.writeFileSync(
-    getSecureConfigPath(),
-    JSON.stringify(
-      secureConfig,
-      null,
-      2,
-    ),
-    'utf8',
-  )
+  fs.writeFileSync(getSecureConfigPath(), JSON.stringify(secureConfig, null, 2), 'utf8')
 }
-
 
 function getConfigStatus() {
-  if (
-    !app.isPackaged
-  ) {
+  if (!app.isPackaged) {
     return {
-      configured: true,
-      source: 'development',
-      editable: false,
-      llmModel: null,
-      hasLlmApiKey: false,
-      hasTavilyApiKey: false,
+      configured: true, source: 'development', editable: false,
+      llmProvider: process.env.LLM_PROVIDER || 'gemini', llmModel: null,
+      hasLlmApiKey: false, hasTavilyApiKey: false,
     }
   }
-
-  if (
-    hasSecureConfig()
-  ) {
-    try {
-      const metadata =
-        readSecureConfigMetadata()
-
+  for (const [exists, source, reader] of [
+    [hasSecureConfig, 'secure', readSecureConfigMetadata],
+    [hasLegacyConfig, 'legacy', () => {
+      const c = readLegacyConfig()
       return {
-        configured:
-          metadata.hasLlmApiKey
-          && metadata.hasTavilyApiKey
-          && Boolean(
-            metadata.llmModel,
-          ),
-
-        source: 'secure',
-        editable: true,
-        llmModel:
-          metadata.llmModel,
-
-        hasLlmApiKey:
-          metadata.hasLlmApiKey,
-
-        hasTavilyApiKey:
-          metadata.hasTavilyApiKey,
+        llmProvider: c.llmProvider, llmModel: c.llmModel,
+        hasLlmApiKey: Boolean(c.llmApiKey), hasTavilyApiKey: Boolean(c.tavilyApiKey),
+      }
+    }],
+  ]) {
+    if (!exists()) continue
+    try {
+      const meta = reader()
+      return {
+        configured: meta.hasLlmApiKey && meta.hasTavilyApiKey && Boolean(meta.llmModel),
+        source, editable: true, ...meta,
       }
     } catch {
       return {
-        configured: false,
-        source: 'secure-error',
-        editable: true,
-        llmModel: '',
-        hasLlmApiKey: false,
+        configured: false, source: `${source}-error`, editable: true,
+        llmProvider: 'gemini', llmModel: '', hasLlmApiKey: false,
         hasTavilyApiKey: false,
       }
     }
   }
-
-  if (
-    hasLegacyConfig()
-  ) {
-    try {
-      const legacyConfig =
-        readLegacyConfig()
-
-      return {
-        configured:
-          Boolean(
-            legacyConfig.llmApiKey,
-          )
-          && Boolean(
-            legacyConfig.tavilyApiKey,
-          )
-          && Boolean(
-            legacyConfig.llmModel,
-          ),
-
-        source: 'legacy',
-        editable: true,
-        llmModel:
-          legacyConfig.llmModel,
-
-        hasLlmApiKey:
-          Boolean(
-            legacyConfig.llmApiKey,
-          ),
-
-        hasTavilyApiKey:
-          Boolean(
-            legacyConfig.tavilyApiKey,
-          ),
-      }
-    } catch {
-      return {
-        configured: false,
-        source: 'legacy-error',
-        editable: true,
-        llmModel: '',
-        hasLlmApiKey: false,
-        hasTavilyApiKey: false,
-      }
-    }
-  }
-
   return {
-    configured: false,
-    source: null,
-    editable: true,
-    llmModel: '',
-    hasLlmApiKey: false,
-    hasTavilyApiKey: false,
+    configured: false, source: null, editable: true, llmProvider: 'gemini',
+    llmModel: '', hasLlmApiKey: false, hasTavilyApiKey: false,
   }
 }
-
 
 function getExistingConfig() {
-  if (
-    hasSecureConfig()
-  ) {
-    try {
-      return readSecureConfig()
-    } catch {
-      return {
-        llmApiKey: '',
-        tavilyApiKey: '',
-        llmModel: '',
-      }
-    }
-  }
-
-  if (
-    hasLegacyConfig()
-  ) {
-    try {
-      return readLegacyConfig()
-    } catch {
-      return {
-        llmApiKey: '',
-        tavilyApiKey: '',
-        llmModel: '',
-      }
-    }
-  }
-
-  return {
-    llmApiKey: '',
-    tavilyApiKey: '',
-    llmModel: '',
-  }
+  try {
+    if (hasSecureConfig()) return readSecureConfig()
+    if (hasLegacyConfig()) return readLegacyConfig()
+  } catch { /* Invalid old configuration: require fresh credentials. */ }
+  return { llmProvider: 'gemini', llmApiKey: '', tavilyApiKey: '', llmModel: '' }
 }
 
-
-function resolveConfigUpdate(
-  config,
-) {
-  const existing =
-    getExistingConfig()
-
-  const requestedLlmApiKey =
-    String(
-      config?.llmApiKey ?? '',
-    ).trim()
-
-  const requestedTavilyApiKey =
-    String(
-      config?.tavilyApiKey ?? '',
-    ).trim()
-
-  const requestedLlmModel =
-    String(
-      config?.llmModel ?? '',
-    ).trim()
-
+function resolveConfigUpdate(config) {
+  const existing = getExistingConfig()
+  const llmProvider = normalizeProvider(config?.llmProvider || existing.llmProvider)
+  const providerChanged = llmProvider !== existing.llmProvider
   const resolvedConfig = {
-    llmApiKey:
-      requestedLlmApiKey
-      || existing.llmApiKey,
-
-    tavilyApiKey:
-      requestedTavilyApiKey
-      || existing.tavilyApiKey,
-
-    llmModel:
-      requestedLlmModel
-      || existing.llmModel,
+    llmProvider,
+    llmApiKey: String(config?.llmApiKey ?? '').trim()
+      || (providerChanged ? '' : existing.llmApiKey),
+    tavilyApiKey: String(config?.tavilyApiKey ?? '').trim() || existing.tavilyApiKey,
+    llmModel: String(config?.llmModel ?? '').trim()
+      || (providerChanged ? '' : existing.llmModel),
   }
-
-  if (
-    !resolvedConfig.llmApiKey
-    || !resolvedConfig.tavilyApiKey
-    || !resolvedConfig.llmModel
-  ) {
-    throw new Error(
-      'OpenAI API key, Tavily API key, and model are required.',
-    )
+  if (!resolvedConfig.llmApiKey || !resolvedConfig.tavilyApiKey || !resolvedConfig.llmModel) {
+    throw new Error('LLM API key, Tavily API key, and model are required.')
   }
-
-  if (
-    resolvedConfig.llmApiKey.length
-      > 4096
-    || resolvedConfig.tavilyApiKey.length
-      > 4096
-    || resolvedConfig.llmModel.length
-      > 200
-  ) {
-    throw new Error(
-      'One or more configuration values are too long.',
-    )
+  if (resolvedConfig.llmApiKey.length > 4096 ||
+      resolvedConfig.tavilyApiKey.length > 4096 ||
+      resolvedConfig.llmModel.length > 200) {
+    throw new Error('One or more configuration values are too long.')
   }
-
   return resolvedConfig
 }
-
 
 function closeBackendLog() {
   if (
@@ -899,53 +692,31 @@ function startPackagedBackend() {
       '1',
   }
 
-  let configurationSource = null
-
-  if (
-    hasSecureConfig()
-  ) {
-    const secureConfig =
-      readSecureConfig()
-
-    childEnvironment.LLM_API_KEY =
-      secureConfig.llmApiKey
-
-    childEnvironment.SEARCH_API_KEY =
-      secureConfig.tavilyApiKey
-
-    childEnvironment.LLM_MODEL =
-      secureConfig.llmModel
-
-    delete childEnvironment
-      .TRUSTNET_ENV_FILE
-
-    configurationSource =
-      'secure'
-  } else if (
-    hasLegacyConfig()
-  ) {
-    const legacyConfig =
-      readLegacyConfig()
-
-    childEnvironment.LLM_API_KEY =
-      legacyConfig.llmApiKey
-
-    childEnvironment.SEARCH_API_KEY =
-      legacyConfig.tavilyApiKey
-
-    childEnvironment.LLM_MODEL =
-      legacyConfig.llmModel
-
-    delete childEnvironment
-      .TRUSTNET_ENV_FILE
-
-    configurationSource =
-      'legacy'
+  let config
+  let configurationSource
+  if (hasSecureConfig()) {
+    config = readSecureConfig()
+    configurationSource = 'secure'
+  } else if (hasLegacyConfig()) {
+    config = readLegacyConfig()
+    configurationSource = 'legacy'
   } else {
-    throw new Error(
-      'TrustNet API configuration has not been set up.',
-    )
+    throw new Error('TrustNet API configuration has not been set up.')
   }
+  const providerKeys = {
+    gemini: ['GEMINI_API_KEY', 'GEMINI_MODEL'],
+    openai: ['OPENAI_API_KEY', 'OPENAI_MODEL'],
+    openrouter: ['OPENROUTER_API_KEY', 'OPENROUTER_MODEL'],
+  }
+  // Do not inherit unrelated provider keys from the parent process.
+  for (const keys of Object.values(providerKeys)) {
+    for (const key of keys) delete childEnvironment[key]
+  }
+  delete childEnvironment.TRUSTNET_ENV_FILE
+  childEnvironment.LLM_PROVIDER = config.llmProvider
+  childEnvironment[providerKeys[config.llmProvider][0]] = config.llmApiKey
+  childEnvironment[providerKeys[config.llmProvider][1]] = config.llmModel
+  childEnvironment.SEARCH_API_KEY = config.tavilyApiKey
 
   fs.appendFileSync(
     logFilePath,

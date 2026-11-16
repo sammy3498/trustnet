@@ -152,6 +152,12 @@ def test_context_conflict_becomes_mixed():
         status="supports",
     )
 
+    # A material omission must now have a directly cited conflicting qualifier.
+    analysis["evidence_assessments"] = [{
+        "stance": "contradicts", "qualifier_relation": "conflicts",
+        "directness": "direct", "relevance": "high",
+    }]
+
     result = (
         apply_v4_subclaim_consistency(
             analysis

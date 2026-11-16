@@ -24,3 +24,4 @@ class RetrievedEvidence(BaseModel):
         "snippet",
     ] = "webpage"
     published_date: str | None = None
+    matched_query: str = ""

@@ -1,7 +1,7 @@
 {
   "name": "trustnet-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TrustNet evidence-first credibility analysis desktop application",
   "author": "Sameer Zyad",
   "type": "module",
@@ -36,7 +36,6 @@
     "appId": "com.trustnet.desktop",
     "productName": "TrustNet",
     "asar": true,
-    "electronDist": "node_modules/electron/dist",
     "directories": {
       "output": "release",
       "buildResources": "build"

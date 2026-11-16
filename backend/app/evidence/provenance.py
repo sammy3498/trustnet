@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 
 HIGH_QUALITY_DOMAINS = {
     "who.int",
+    "unicef.org",
     "nih.gov",
     "pubmed.ncbi.nlm.nih.gov",
     "nature.com",
@@ -13,6 +14,7 @@ HIGH_QUALITY_DOMAINS = {
     "plos.org",
     "bmj.com",
     "cochranelibrary.com",
+    "cochrane.org",
     "reuters.com",
     "apnews.com",
     "gov.uk",
@@ -22,6 +24,15 @@ HIGH_QUALITY_DOMAINS = {
     "un.org",
     "oecd.org",
     "worldbank.org",
+    "worldhappiness.report",
+    "ncsl.org",
+    "who.int",
+    "data.un.org",
+    "unstats.un.org",
+    "statistics.gov.uk",
+    "ecb.europa.eu",
+    "census.gov",
+    "bls.gov",
 }
 
 
@@ -62,6 +73,10 @@ RESEARCH_INFORMATION_DOMAINS = {
     "sciencedirect.com",
     "wiley.com",
     "nationalgeographic.com",
+    "usvotefoundation.org",
+    "constitutioncenter.org",
+    "ballotpedia.org",
+    "gallup.com",
 }
 
 
@@ -75,6 +90,13 @@ MEDIUM_QUALITY_DOMAINS = (
 HIGH_QUALITY_SUFFIXES = {
     ".gov",
     ".mil",
+    ".gov.in",
+    ".gov.au",
+    ".gov.sg",
+    ".gov.ca",
+    ".gc.ca",
+    ".gov.nz",
+    ".gouv.fr",
 }
 
 

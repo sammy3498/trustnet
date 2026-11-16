@@ -63,74 +63,86 @@ def _normalized_url(
 
 def apply_retrieved_source_quality(
     analysis: dict,
-    evidence: list[
-        RetrievedEvidence
-    ],
+    evidence: list[RetrievedEvidence],
 ) -> dict:
-    quality_by_url = {
-        _normalized_url(
-            item.url
-        ): item.quality
-        for item in evidence
-    }
+    """Bind every cited assessment to a retrieved item, never an LLM URL.
 
-    quality_by_title = {
-        item.title.strip().lower(): (
-            item.quality
-        )
-        for item in evidence
-        if item.title.strip()
-    }
+    Source rating and document identity are deterministic.  Unknown URLs are
+    removed rather than allowing a plausible-sounding invented citation.
+    """
+    by_url = {_normalized_url(item.url): item for item in evidence}
+    by_title = {}
+    for item in evidence:
+        by_title.setdefault(item.title.strip().lower(), []).append(item)
+    clean = []
+    omitted = 0
+    seen = set()
+    for row in analysis.get("evidence_assessments", []):
+        key = _normalized_url(str(row.get("url", "")))
+        doc = by_url.get(key)
+        if doc is None:
+            matches = by_title.get(str(row.get("title", "")).strip().lower(), [])
+            if len(matches) == 1:
+                doc = matches[0]
+        if doc is None or doc.url in seen:
+            omitted += 1
+            continue
+        seen.add(doc.url)
+        row["url"] = doc.url
+        row["title"] = doc.title
+        row["quality"] = doc.quality
+        row["evidence_origin"] = doc.evidence_origin
+        if row.get("directness") == "none":
+            row["stance"] = "neutral"
+        clean.append(row)
+    analysis["evidence_assessments"] = clean
+    analysis["unmatched_citation_count"] = omitted
+    return analysis
 
-    for assessment in analysis.get(
-        "evidence_assessments",
-        [],
-    ):
-        url_key = _normalized_url(
-            str(
-                assessment.get(
-                    "url",
-                    "",
-                )
-            )
-        )
 
-        resolved_quality = (
-            quality_by_url.get(
-                url_key
-            )
-        )
+def enforce_subclaim_grounding(analysis: dict) -> dict:
+    """A subclaim's 'direct' flag must have a matching cited source stance.
 
-        if resolved_quality is None:
-            title_key = str(
-                assessment.get(
-                    "title",
-                    "",
-                )
-            ).strip().lower()
-
-            resolved_quality = (
-                quality_by_title.get(
-                    title_key
-                )
-            )
-
-        if resolved_quality is not None:
-            assessment[
-                "quality"
-            ] = resolved_quality
-
+    This is a structural sanity check, not an independent semantic fact-check.
+    """
+    direct_support = any(
+        row.get("stance") in {"supports", "mixed"}
+        and row.get("directness") in {"direct", "partial"}
+        and row.get("relevance") in {"high", "medium"}
+        for row in analysis.get("evidence_assessments", [])
+    )
+    direct_contradiction = any(
+        row.get("stance") in {"contradicts", "mixed"}
+        and row.get("directness") == "direct"
+        and row.get("relevance") in {"high", "medium"}
+        for row in analysis.get("evidence_assessments", [])
+    )
+    for row in analysis.get("subclaim_assessments", []):
+        if not direct_support:
+            row["direct_support"] = False
+        if not direct_contradiction:
+            row["direct_contradiction"] = False
     return analysis
 
 
 def apply_v4_subclaim_consistency(
     analysis: dict,
 ) -> dict:
-    subclaims = analysis[
-        "subclaim_assessments"
-    ]
+    subclaims = analysis["subclaim_assessments"]
+    # Material context must be attested by an actual retrieved passage;
+    # a general model intuition is not enough to invent cherry-picking.
+    grounded_qualifier = any(
+        row.get("qualifier_relation") == "conflicts"
+        and row.get("stance") in {"contradicts", "mixed"}
+        and row.get("relevance") in {"high", "medium"}
+        and row.get("directness") in {"direct", "partial"}
+        for row in analysis.get("evidence_assessments", [])
+    )
 
     for subclaim in subclaims:
+        if subclaim.get("material_context_conflict") and not grounded_qualifier:
+            subclaim["material_context_conflict"] = False
+            subclaim["ungrounded_context_conflict_discarded"] = True
         original_status = (
             subclaim[
                 "status"
@@ -243,6 +255,7 @@ def apply_direction_consistency(
             fallback_direction=(
                 original_direction
             ),
+            claim_text=analysis.get("claim", ""),
         )
     )
 
@@ -308,7 +321,7 @@ def analyze_evidence_with_llm(
         excerpt = (
             get_relevant_excerpt(
                 text=item.text,
-                query=claim,
+                query=(item.matched_query or claim),
                 max_chars=max_chars,
             )
         )
@@ -396,6 +409,7 @@ Evidence:
         )
     )
 
+    analysis = enforce_subclaim_grounding(analysis)
     analysis = (
         apply_v4_subclaim_consistency(
             analysis

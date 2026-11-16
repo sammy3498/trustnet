@@ -32,26 +32,21 @@ def derive_confidence(uncertainty: dict) -> str:
 
 def build_public_evidence(result: dict) -> list[EvidenceItem]:
     retrieved_by_url = {
-        item["url"]: item
+        item["url"].rstrip("/"): item
         for item in result.get("evidence", [])
     }
-
     assessments = result.get(
-        "evidence_analysis",
-        {},
-    ).get(
-        "evidence_assessments",
-        [],
-    )
+        "evidence_analysis", {}
+    ).get("evidence_assessments", [])
 
     public_evidence = []
-
+    assessed_urls = set()
     for assessment in assessments:
-        retrieved = retrieved_by_url.get(assessment["url"])
-
-        if not retrieved:
+        url = assessment.get("url", "").rstrip("/")
+        retrieved = retrieved_by_url.get(url)
+        if not retrieved or url in assessed_urls:
             continue
-
+        assessed_urls.add(url)
         public_evidence.append(
             EvidenceItem(
                 title=retrieved["title"],
@@ -63,6 +58,47 @@ def build_public_evidence(result: dict) -> list[EvidenceItem]:
             )
         )
 
+    # Timeout is not absence of evidence. Display any retrieved sources as
+    # unassessed (neutral), never as supporting/contradicting the claim.
+    for url, retrieved in retrieved_by_url.items():
+        if url in assessed_urls:
+            continue
+        public_evidence.append(
+            EvidenceItem(
+                title=retrieved["title"],
+                url=retrieved["url"],
+                source=retrieved["source"],
+                stance="neutral",
+                quality=retrieved["quality"],
+                summary=(
+                    "Source retrieved, but the LLM did not finish assessing "
+                    "its relevance or stance. No conclusion is implied."
+                ),
+            )
+        )
+    # Surface the most decisive, material and trustworthy citations first.
+    # A high-authority *neutral* government page must not outrank a direct
+    # counterexample from a medium-authority elections specialist.
+    assessments_by_url = {
+        item.get("url", "").rstrip("/"): item for item in assessments
+    }
+    def citation_priority(item):
+        assessed = assessments_by_url.get(item.url.rstrip("/"), {})
+        stance = assessed.get("stance", "neutral")
+        directness = assessed.get("directness", "none")
+        relevance = assessed.get("relevance", "low")
+        material = (stance in {"supports", "contradicts", "mixed"}
+                    and directness in {"direct", "partial"}
+                    and relevance in {"high", "medium"})
+        retrieved = retrieved_by_url.get(item.url.rstrip("/"), {})
+        return (
+            1 if material else 0,
+            {"direct": 2, "partial": 1}.get(directness, 0),
+            {"high": 2, "medium": 1, "low": 0}.get(relevance, 0),
+            {"high": 2, "medium": 1, "low": 0}.get(item.quality, 0),
+            1 if retrieved.get("evidence_origin") == "webpage" else 0,
+        )
+    public_evidence.sort(key=citation_priority, reverse=True)
     return public_evidence
 
 
@@ -200,7 +236,7 @@ def analyze(request: AnalyzeRequest):
 
     return AnalysisResponse(
         claim=result["claim"],
-        overall_score=result["overall_score"],
+        overall_score=None if uncertainty.gate_triggered else result["overall_score"],
         label=result["label"],
         confidence=derive_confidence(result["uncertainty"]),
         factors=factors,

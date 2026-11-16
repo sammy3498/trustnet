@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+from functools import lru_cache
 from concurrent.futures import (
     ThreadPoolExecutor,
     TimeoutError as FuturesTimeoutError,
@@ -39,6 +40,20 @@ def get_provider() -> str:
     return provider
 
 
+
+@lru_cache(maxsize=4)
+def _cached_client(provider: str, api_key: str) -> OpenAI:
+    """Reuse the HTTP connection pool across LLM calls and requests."""
+    base_urls = {
+        "openrouter": "https://openrouter.ai/api/v1",
+        "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    }
+    settings = {"api_key": api_key, "max_retries": 0}
+    if provider in base_urls:
+        settings["base_url"] = base_urls[provider]
+    return OpenAI(**settings)
+
+
 def get_client_and_model():
     provider = get_provider()
 
@@ -61,10 +76,7 @@ def get_client_and_model():
                 "OPENAI_MODEL is not configured."
             )
 
-        client = OpenAI(
-            api_key=api_key,
-            max_retries=0,
-        )
+        client = _cached_client(provider, api_key)
 
         return (
             provider,
@@ -91,13 +103,7 @@ def get_client_and_model():
                 "OPENROUTER_MODEL is not configured."
             )
 
-        client = OpenAI(
-            api_key=api_key,
-            base_url=(
-                "https://openrouter.ai/api/v1"
-            ),
-            max_retries=0,
-        )
+        client = _cached_client(provider, api_key)
 
         return (
             provider,
@@ -123,14 +129,7 @@ def get_client_and_model():
             "GEMINI_MODEL is not configured."
         )
 
-    client = OpenAI(
-        api_key=api_key,
-        base_url=(
-            "https://generativelanguage."
-            "googleapis.com/v1beta/openai/"
-        ),
-        max_retries=0,
-    )
+    client = _cached_client(provider, api_key)
 
     return (
         provider,
